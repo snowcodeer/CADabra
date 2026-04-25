@@ -4,8 +4,9 @@ from pathlib import Path
 import cadquery as cq
 from cadquery import exporters
 
-src_dir = Path('/workspace/backend/sample_data/deepcad_selected')
-out_dir = Path('/workspace/backend/outputs/deepcad_selected_stl')
+REPO_ROOT = Path(__file__).resolve().parent.parent
+src_dir = REPO_ROOT / 'backend/sample_data/deepcad_selected'
+out_dir = REPO_ROOT / 'backend/outputs/deepcad_selected_stl'
 out_dir.mkdir(parents=True, exist_ok=True)
 
 manifest = json.loads((src_dir / 'manifest.json').read_text())
@@ -31,5 +32,5 @@ for item in manifest:
         err = str(e)
     results.append({'id': sid, 'success': ok, 'error': err, 'stl_file': f'deepcadimg_{sid:06d}.stl'})
 
-(Path('/workspace/backend/outputs/deepcad_selected_stl/manifest.json')).write_text(json.dumps(results, indent=2))
+(out_dir / 'manifest.json').write_text(json.dumps(results, indent=2))
 print('success', sum(1 for r in results if r['success']), 'of', len(results))
