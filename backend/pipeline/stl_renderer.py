@@ -58,7 +58,9 @@ RENDER_PANEL_SIZE = 400
 CROP_PADDING_FRAC = 0.1
 MESH_COLOR = "#AAAAAA"
 BG_DEPTH = (30, 30, 30)
-FLAT_SURFACE_NORMALISED = 0.5
+FLAT_SURFACE_RADIAL_HIGH = 1.0
+FLAT_SURFACE_RADIAL_LOW = 0.92
+FLAT_DEPTH_EPSILON = 1e-6
 
 CAMERA_VIEWS: dict[str, dict[str, tuple[float, float, float]]] = {
     "+Z": {"position": (0.0, 0.0, 1.0), "up": (0.0, 1.0, 0.0)},
@@ -305,8 +307,16 @@ def depth_to_colormap(
     d_min = float(surface_vals.min())
     d_max = float(surface_vals.max())
 
-    if d_max <= d_min:
-        normalised = np.full_like(surface_vals, FLAT_SURFACE_NORMALISED)
+    if d_max <= d_min or (d_max - d_min) < FLAT_DEPTH_EPSILON:
+        h, w = depth.shape
+        cy, cx = h / 2.0, w / 2.0
+        y_idx, x_idx = np.mgrid[0:h, 0:w]
+        dist = np.sqrt((y_idx - cy) ** 2 + (x_idx - cx) ** 2)
+        max_dist = float(np.sqrt(cy * cy + cx * cx))
+        dist_norm = dist / max_dist
+        radial_span = FLAT_SURFACE_RADIAL_HIGH - FLAT_SURFACE_RADIAL_LOW
+        radial = FLAT_SURFACE_RADIAL_HIGH - dist_norm * radial_span
+        normalised = radial[surface].astype(np.float32)
     else:
         normalised = (surface_vals - d_min) / (d_max - d_min)
         normalised = 1.0 - normalised
