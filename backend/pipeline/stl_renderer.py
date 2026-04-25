@@ -87,6 +87,24 @@ VIEW_LABELS: dict[str, str] = {
     "-Y": "-Y \u2014 back view     (rear feature check)",
 }
 
+# Mapping of view direction -> (horizontal world axis, vertical world axis).
+# Used to annotate each cell with the actual mm span that's visible. This
+# turns "guess the proportions" into "read the number" for the vision model.
+VIEW_AXES: dict[str, tuple[str, str]] = {
+    "+Z": ("X", "Y"),
+    "-Z": ("X", "Y"),
+    "+X": ("Y", "Z"),
+    "-X": ("Y", "Z"),
+    "+Y": ("X", "Z"),
+    "-Y": ("X", "Z"),
+}
+
+# "Round" lengths the per-panel scale bar will pick from, in mm. The
+# renderer chooses whichever value lands closest to a 60-pixel bar at
+# the current view's pixels-per-mm ratio.
+SCALE_BAR_CANDIDATES_MM: list[float] = [1, 2, 5, 10, 20, 50, 100, 200, 500]
+SCALE_BAR_TARGET_PX = 60
+
 LABEL_BAR_HEIGHT = 40
 SUB_LABEL_HEIGHT = 25
 CELL_WIDTH = RENDER_PANEL_SIZE * 2
@@ -114,7 +132,8 @@ LEGEND_TEXT = (
     "DEPTH MAP KEY:  \u25A0 RED/ORANGE = closest to camera  \u2192  "
     "\u25A0 DARK BLUE = furthest from camera  |  "
     "YELLOW = mid-distance  |  "
-    "Background = #1e1e1e (not part of object)"
+    "SCALE BAR (bottom-left of each RGB panel) gives the horizontal mm reference  |  "
+    "Cell label states the visible region's world span"
 )
 DEPTH_COLORMAP = "RdYlBu_r"
 
@@ -389,15 +408,103 @@ def _paste_array(canvas: Image.Image, arr: np.ndarray, xy: tuple[int, int]) -> N
     canvas.paste(Image.fromarray(arr), xy)
 
 
+def _view_spans_mm(
+    mesh_bounds: tuple[float, float, float, float, float, float],
+    direction: str,
+) -> tuple[float, float]:
+    """Return (horizontal_mm, vertical_mm) world span visible in this view.
+
+    Each panel is cropped to the object's projected bounding box plus a
+    fixed padding fraction on every side, so the world span actually
+    visible is the bbox extent along that axis multiplied by
+    ``(1 + 2 * CROP_PADDING_FRAC)``. The two axes are decided by
+    ``VIEW_AXES``.
+    """
+    xmin, xmax, ymin, ymax, zmin, zmax = mesh_bounds
+    extents = {"X": xmax - xmin, "Y": ymax - ymin, "Z": zmax - zmin}
+    h_axis, v_axis = VIEW_AXES[direction]
+    pad_factor = 1.0 + 2.0 * CROP_PADDING_FRAC
+    return extents[h_axis] * pad_factor, extents[v_axis] * pad_factor
+
+
+def _format_mm(value: float) -> str:
+    """Format a millimetre value as an integer when round, else 1 decimal."""
+    if abs(value - round(value)) < 0.05:
+        return f"{int(round(value))}"
+    return f"{value:.1f}"
+
+
+def _annotated_label(direction: str, h_mm: float, v_mm: float) -> str:
+    """Compose the cell label with the visible world dimensions appended."""
+    h_axis, v_axis = VIEW_AXES[direction]
+    return (
+        f"{VIEW_LABELS[direction]}    "
+        f"|  visible: {h_axis} {_format_mm(h_mm)}mm \u00d7 "
+        f"{v_axis} {_format_mm(v_mm)}mm"
+    )
+
+
+def _pick_scale_bar_length_mm(world_span_mm: float) -> float:
+    """Pick a 'round' scale-bar length that targets ~60 px on screen."""
+    pixels_per_mm = RENDER_PANEL_SIZE / max(world_span_mm, 1e-6)
+    target_mm = SCALE_BAR_TARGET_PX / pixels_per_mm
+    return min(SCALE_BAR_CANDIDATES_MM, key=lambda c: abs(c - target_mm))
+
+
+def _draw_scale_bar(
+    draw: ImageDraw.ImageDraw,
+    panel_x: int,
+    panel_y: int,
+    horizontal_mm: float,
+    font: ImageFont.ImageFont,
+) -> None:
+    """Draw a small horizontal scale bar in the bottom-left of an RGB panel.
+
+    Bar sits on a white background pad so it stays legible regardless of
+    the underlying render. End ticks mark the bar length precisely; the
+    label below states the length in millimetres.
+    """
+    bar_mm = _pick_scale_bar_length_mm(horizontal_mm)
+    pixels_per_mm = RENDER_PANEL_SIZE / max(horizontal_mm, 1e-6)
+    bar_px = max(8, int(round(bar_mm * pixels_per_mm)))
+
+    margin = 12
+    bar_y = panel_y + RENDER_PANEL_SIZE - margin - 6
+    label = f"{_format_mm(bar_mm)}mm"
+
+    label_w = int(draw.textlength(label, font=font))
+    pad = 4
+    bg_x0 = panel_x + margin - pad
+    bg_y0 = bar_y - pad - 2
+    bg_x1 = panel_x + margin + bar_px + 6 + label_w + pad
+    bg_y1 = bar_y + 8 + pad
+    draw.rectangle((bg_x0, bg_y0, bg_x1, bg_y1), fill=(255, 255, 255))
+
+    x0 = panel_x + margin
+    x1 = x0 + bar_px
+    cy = bar_y + 4
+    draw.line((x0, cy, x1, cy), fill=(0, 0, 0), width=2)
+    draw.line((x0, cy - 4, x0, cy + 4), fill=(0, 0, 0), width=2)
+    draw.line((x1, cy - 4, x1, cy + 4), fill=(0, 0, 0), width=2)
+    draw.text((x1 + 6, bar_y - 2), label, fill=(0, 0, 0), font=font)
+
+
 def build_grid(
     renders: dict[str, np.ndarray],
     depth_maps: dict[str, np.ndarray],
+    mesh_bounds: tuple[float, float, float, float, float, float] | None = None,
 ) -> Image.Image:
     """Compose 6 cells per GRID_FORMAT_SPEC.md into a 2400x930 PIL image.
 
     Each 800x465 cell stacks: top label bar (800x40), render area
     (RGB 400x400 + Depth 400x400), and a sub-label bar (800x25). Cells
     are separated by 2px #333333 borders; the outer edge has no border.
+
+    When ``mesh_bounds`` is supplied, every cell label is annotated with
+    the visible world-coordinate span (e.g. ``X 100mm × Y 80mm``) and
+    the RGB panel gets a small scale-bar overlay. This is the only way
+    the vision model can recover absolute dimensions from the renders;
+    without it the prompt has to fall back to "longest dim = 100mm".
     """
     missing = [d for row in GRID_ORDER for d in row if d not in renders or d not in depth_maps]
     if missing:
@@ -407,6 +514,7 @@ def build_grid(
     draw = ImageDraw.Draw(canvas)
     label_font = _load_font(LABEL_FONT_SIZE, bold=True)
     sub_font = _load_font(SUB_LABEL_FONT_SIZE, bold=False)
+    scale_font = _load_font(SUB_LABEL_FONT_SIZE, bold=True)
 
     for row_idx, row in enumerate(GRID_ORDER):
         for col_idx, direction in enumerate(row):
@@ -415,7 +523,12 @@ def build_grid(
 
             label_box = (cell_x, cell_y, cell_x + CELL_WIDTH, cell_y + LABEL_BAR_HEIGHT)
             draw.rectangle(label_box, fill=BAR_BG_COLOR)
-            _draw_centered_text(draw, label_box, VIEW_LABELS[direction], label_font)
+            if mesh_bounds is not None:
+                h_mm, v_mm = _view_spans_mm(mesh_bounds, direction)
+                label_text = _annotated_label(direction, h_mm, v_mm)
+            else:
+                label_text = VIEW_LABELS[direction]
+            _draw_centered_text(draw, label_box, label_text, label_font)
 
             render_y = cell_y + LABEL_BAR_HEIGHT
             _paste_array(canvas, renders[direction], (cell_x, render_y))
@@ -424,6 +537,9 @@ def build_grid(
                 depth_maps[direction],
                 (cell_x + RENDER_PANEL_SIZE, render_y),
             )
+
+            if mesh_bounds is not None:
+                _draw_scale_bar(draw, cell_x, render_y, h_mm, scale_font)
 
             sub_y = render_y + RENDER_PANEL_SIZE
             sub_box_rgb = (cell_x, sub_y, cell_x + RENDER_PANEL_SIZE, sub_y + SUB_LABEL_HEIGHT)
@@ -496,15 +612,46 @@ def _compose_final_image(grid: Image.Image, part_id: str) -> Image.Image:
     return canvas
 
 
+def _normalise_mesh(mesh: pv.PolyData, target_longest_mm: float) -> pv.PolyData:
+    """Uniformly scale ``mesh`` so its longest bbox extent equals ``target_longest_mm``.
+
+    DeepCAD-style sources arrive in normalised cube coordinates (extents
+    ~1.5), so the dimension annotations would read sub-millimetre and
+    contradict the prompt's mm-scale heuristics. This rescales the mesh
+    in place so the longest dimension is a sane working size; the other
+    two scale proportionally.
+    """
+    bounds = np.asarray(mesh.bounds).reshape(3, 2)
+    extents = np.ptp(bounds, axis=1)
+    longest = float(np.max(extents))
+    if longest <= 0:
+        return mesh
+    factor = target_longest_mm / longest
+    if abs(factor - 1.0) < 1e-6:
+        return mesh
+    print(
+        f"[stl_renderer] Scaling mesh by {factor:.4f}x "
+        f"(longest extent {longest:.4f} -> {target_longest_mm} mm)"
+    )
+    return mesh.scale(factor, inplace=False)
+
+
 def render_stl_to_grid(
     stl_path: str | Path,
     output_path: str | Path,
     part_id: str | None = None,
+    normalize_longest_to_mm: float | None = None,
 ) -> Path:
     """End-to-end: STL path in, full 2400x1000 PNG written to output_path.
 
     `part_id` is embedded in the header bar; when omitted it defaults to the
     STL filename stem so the CLI works without extra arguments.
+
+    `normalize_longest_to_mm` rescales the mesh so its longest bounding-
+    box extent equals the given value before rendering. Use it for
+    sources that are not in real-world millimetres (e.g. DeepCAD samples
+    sit in a [-0.75, 0.75] cube). Leave it ``None`` for STLs already in
+    mm so their dimension annotations remain truthful.
     """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -514,6 +661,9 @@ def render_stl_to_grid(
         part_id = stl_path.stem
 
     mesh = load_mesh(stl_path)
+    if normalize_longest_to_mm is not None:
+        mesh = _normalise_mesh(mesh, normalize_longest_to_mm)
+    mesh_bounds = tuple(float(v) for v in mesh.bounds)  # type: ignore[arg-type]
 
     renders: dict[str, np.ndarray] = {}
     depth_maps: dict[str, np.ndarray] = {}
@@ -525,7 +675,7 @@ def render_stl_to_grid(
         renders[direction] = _resize_panel(rgb_cropped, RENDER_PANEL_SIZE)
         depth_maps[direction] = _resize_panel(depth_cropped, RENDER_PANEL_SIZE)
 
-    grid = build_grid(renders, depth_maps)
+    grid = build_grid(renders, depth_maps, mesh_bounds=mesh_bounds)
     final = _compose_final_image(grid, part_id)
     if final.size != (FULL_WIDTH, FULL_HEIGHT):
         raise RuntimeError(
@@ -596,6 +746,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Identifier embedded in the header bar (defaults to STL filename stem).",
     )
     parser.add_argument(
+        "--normalize-longest-mm",
+        dest="normalize_longest_mm",
+        type=float,
+        default=None,
+        help=(
+            "Scale the mesh so its longest bbox extent equals this many mm "
+            "before rendering. Use for non-mm sources like DeepCAD samples; "
+            "leave unset for STLs already in real-world millimetres."
+        ),
+    )
+    parser.add_argument(
         "input_path",
         type=Path,
         help="Input .stl mesh file (or grid PNG when --verify is set)",
@@ -619,7 +780,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.output_path is None:
         raise SystemExit("output_path is required when not using --verify")
-    render_stl_to_grid(args.input_path, args.output_path, part_id=args.part_id)
+    render_stl_to_grid(
+        args.input_path, args.output_path,
+        part_id=args.part_id,
+        normalize_longest_to_mm=args.normalize_longest_mm,
+    )
     return 0
 
 

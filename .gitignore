@@ -5,3 +5,6 @@ backend/outputs/*
 !backend/outputs/.gitkeep
 .venv_data/
 .venv311/
+.env
+*.env
+!.env.example
