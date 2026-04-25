@@ -30,11 +30,6 @@
     "meta_file": "deepcadimg_000043_meta.json"
   },
   {
-    "sample_id": "deepcadimg_000055",
-    "ply_file": "deepcadimg_000055.ply",
-    "meta_file": "deepcadimg_000055_meta.json"
-  },
-  {
     "sample_id": "deepcadimg_000060",
     "ply_file": "deepcadimg_000060.ply",
     "meta_file": "deepcadimg_000060_meta.json"
@@ -53,11 +48,6 @@
     "sample_id": "deepcadimg_061490",
     "ply_file": "deepcadimg_061490.ply",
     "meta_file": "deepcadimg_061490_meta.json"
-  },
-  {
-    "sample_id": "deepcadimg_073806",
-    "ply_file": "deepcadimg_073806.ply",
-    "meta_file": "deepcadimg_073806_meta.json"
   },
   {
     "sample_id": "deepcadimg_117514",
@@ -153,11 +143,6 @@
     "sample_id": "deepcadimg_067626",
     "ply_file": "deepcadimg_067626.ply",
     "meta_file": "deepcadimg_067626_meta.json"
-  },
-  {
-    "sample_id": "deepcadimg_008104",
-    "ply_file": "deepcadimg_008104.ply",
-    "meta_file": "deepcadimg_008104_meta.json"
   },
   {
     "sample_id": "deepcadimg_081740",

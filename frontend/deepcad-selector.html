@@ -13,9 +13,12 @@
     .card img { width: 100%; display: block; background: #eee; }
     .card .lbl { font-size: 12px; padding: 6px; }
     .card.active { border-color: #2563eb; box-shadow: 0 0 0 1px #2563eb inset; }
+    .card.tuner { border-color: #f59e0b; }
+    .card.tuner .lbl::after { content: "TEST"; float: right; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 999px; background: #fef3c7; color: #92400e; }
     .panel { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 10px; }
     .muted { font-size: 12px; color: #555; margin-bottom: 8px; }
     .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .compare.three { grid-template-columns: 1fr 1fr 1fr; }
     .compare-block { border: 1px solid #ddd; border-radius: 6px; overflow: hidden; background: #fafafa; }
     .compare-block h4 { margin: 0; padding: 6px 8px; font-size: 12px; background: #f0f0f0; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
     .compare-block h4 .tag { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 999px; background: #e5e7eb; color: #374151; }
@@ -23,12 +26,20 @@
     .compare-block h4 .tag.noisy { background: #fee2e2; color: #991b1b; }
     .compare-block h4 .tag.clean { background: #dcfce7; color: #14532d; }
     .compare-block h4 .tag.truth { background: #f3f4f6; color: #374151; }
-    #pcViewer, #stlViewer, #reconNoisyViewer, #reconViewer { width: 100%; height: 220px; background: #fff; }
+    .compare-block h4 .tag.geom  { background: #ede9fe; color: #4c1d95; }
+    .geom-panel { background: #fafafa; border: 1px solid #ddd; border-radius: 8px; margin-top: 10px; overflow: hidden; }
+    .geom-panel h4 { margin: 0; padding: 6px 10px; font-size: 12px; background: #f3f0fb; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+    .geom-panel .meta-line { font-size: 11px; color: #4b5563; padding: 6px 10px 0 10px; line-height: 1.4; }
+    .geom-panel .meta-line strong { color: #4c1d95; }
+    .geom-panel .img-wrap { padding: 8px 10px 10px 10px; }
+    .geom-panel img { width: 100%; display: block; border-radius: 4px; background: #fff; }
+    .geom-panel .empty { padding: 16px; font-size: 12px; color: #6b7280; text-align: center; }
+    #pcViewer, #stlViewer, #reconNoisyViewer { width: 100%; height: 260px; background: #fff; }
     pre { white-space: pre-wrap; font-size: 12px; max-height: 30vh; overflow: auto; background: #111; color: #eee; border-radius: 6px; padding: 8px; }
   </style>
 </head>
 <body>
-  <header><strong>DeepCAD Selector</strong> - pipeline stages: ground truth STL -> noisy point cloud -> raw triangles -> cleaned triangles</header>
+  <header><strong>DeepCAD Selector</strong> - pipeline stages: ground truth STL -> virtual scan point cloud -> raw triangles</header>
   <main>
     <section>
       <div class="muted" id="status">Loading selected DeepCAD samples...</div>
@@ -36,7 +47,7 @@
     </section>
     <aside class="panel">
       <div id="meta" class="muted">Pick a sample</div>
-      <div class="compare">
+      <div class="compare three">
         <div class="compare-block">
           <h4><span>1. Original STL (ground truth)</span><span class="tag truth">truth</span></h4>
           <div id="stlViewer"></div>
@@ -49,15 +60,17 @@
           <h4><span>3. Triangles from noisy point cloud</span><span class="tag noisy">raw recon</span></h4>
           <div id="reconNoisyViewer"></div>
         </div>
-        <div class="compare-block">
-          <h4><span>4. Triangles from cleaned point cloud</span><span class="tag clean">cleaned + decimated</span></h4>
-          <div id="reconViewer"></div>
-        </div>
       </div>
       <div class="muted" id="stlStatus" style="margin-top:8px;">Original STL status: idle</div>
       <div class="muted" id="pcStatus">Point cloud status: idle</div>
       <div class="muted" id="reconNoisyStatus">Noisy reconstruction status: idle</div>
-      <div class="muted" id="reconStatus">Cleaned reconstruction status: idle</div>
+      <div class="geom-panel">
+        <h4><span>4. Captured geometry representation (vision-graded)</span><span class="tag geom">ortho views</span></h4>
+        <div class="meta-line" id="geomMeta">Cohesion score: -</div>
+        <div class="img-wrap" id="geomImgWrap">
+          <div class="empty">Pick a sample to see its captured orthographic geometry view.</div>
+        </div>
+      </div>
       <pre id="code"></pre>
     </aside>
   </main>
@@ -74,7 +87,6 @@
     const code = document.getElementById('code');
     const stlStatus = document.getElementById('stlStatus');
     const pcStatus = document.getElementById('pcStatus');
-    const reconStatus = document.getElementById('reconStatus');
     const reconNoisyStatus = document.getElementById('reconNoisyStatus');
 
     function makeViewer(containerId) {
@@ -117,14 +129,38 @@
     const stlView = makeViewer('stlViewer');
     const pcView = makeViewer('pcViewer');
     const reconNoisyView = makeViewer('reconNoisyViewer');
-    const reconView = makeViewer('reconViewer');
 
     const plyLoader = new PLYLoader();
     const stlLoader = new STLLoader();
     let currentStl = null;
     let currentPoints = null;
-    let currentRecon = null;
     let currentReconNoisy = null;
+    let cohesionByIdPromise = fetch('./deepcad_pcrecon_stl/manifest.json')
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => Object.fromEntries(rows.map(r => [r.sample_id, r.cohesion || null])))
+      .catch(() => ({}));
+
+    function loadGeometryView(sampleId) {
+      const wrap = document.getElementById('geomImgWrap');
+      const meta = document.getElementById('geomMeta');
+      cohesionByIdPromise.then(cohesionById => {
+        const cohesion = cohesionById[sampleId];
+        if (cohesion) {
+          const score = cohesion.score ?? '-';
+          const sym = cohesion.symmetry ?? 'unknown';
+          const holes = cohesion.hole_count ?? '-';
+          const diag = (cohesion.diagnosis || '').replace(/\s+/g, ' ').trim();
+          meta.innerHTML = `<strong>Cohesion ${score}/100</strong> &middot; symmetry: ${sym} &middot; holes: ${holes}` + (diag ? `<br>${diag}` : '');
+        } else {
+          meta.innerHTML = '<strong>Cohesion: not graded yet</strong>';
+        }
+        const img = new Image();
+        img.alt = `${sampleId} captured geometry view`;
+        img.onload = () => { wrap.innerHTML = ''; wrap.appendChild(img); };
+        img.onerror = () => { wrap.innerHTML = '<div class="empty">Geometry view PNG not available for this sample yet.</div>'; };
+        img.src = `./deepcad_geometry_views/${sampleId}_geometry.png`;
+      });
+    }
 
     function loadStl(sampleId) {
       stlStatus.textContent = `Original STL status: loading ${sampleId}.stl ...`;
@@ -173,30 +209,27 @@
       }, undefined, () => reconNoisyStatus.textContent = `Noisy reconstruction status: failed to load ${sampleId}_recon_noisy.stl`);
     }
 
-    function loadRecon(sampleId) {
-      reconStatus.textContent = `Cleaned reconstruction status: loading ${sampleId}_recon.stl ...`;
-      if (currentRecon) reconView.scene.remove(currentRecon);
-      stlLoader.load(`./deepcad_pcrecon_stl/${sampleId}_recon.stl`, (geometry) => {
-        geometry.computeBoundingBox();
-        const c = new THREE.Vector3();
-        geometry.boundingBox.getCenter(c);
-        geometry.translate(-c.x, -c.y, -c.z);
-        const solid = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xc8f5d1, roughness: 0.88, metalness: 0.02, flatShading: true }));
-        const wire = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0x0b4f2f, wireframe: true, transparent: true, opacity: 0.95 }));
-        const g = new THREE.Group(); g.add(solid); g.add(wire);
-        reconView.scene.add(g); currentRecon = g;
-        const tris = (geometry.index ? geometry.index.count : geometry.attributes.position.count) / 3;
-        reconStatus.textContent = `Cleaned reconstruction status: loaded ${sampleId}_recon.stl (${Math.round(tris)} tris)`;
-      }, undefined, () => reconStatus.textContent = `Cleaned reconstruction status: failed to load ${sampleId}_recon.stl`);
-    }
+    const TUNER_TEST_IDS = new Set([
+      'deepcadimg_000035',
+      'deepcadimg_000060',
+      'deepcadimg_117514',
+      'deepcadimg_128105',
+    ]);
 
     fetch('./deepcad_image_gallery.json')
       .then(r => r.json())
       .then(samples => {
-        status.textContent = `Loaded ${samples.length} selected DeepCAD samples`;
+        samples.sort((a, b) => {
+          const aTest = TUNER_TEST_IDS.has(a.sample_id) ? 0 : 1;
+          const bTest = TUNER_TEST_IDS.has(b.sample_id) ? 0 : 1;
+          if (aTest !== bTest) return aTest - bTest;
+          return a.sample_id.localeCompare(b.sample_id);
+        });
+        const testCount = samples.filter(s => TUNER_TEST_IDS.has(s.sample_id)).length;
+        status.textContent = `Loaded ${samples.length} selected DeepCAD samples (${testCount} tagged TEST at top)`;
         samples.forEach((s, idx) => {
           const card = document.createElement('div');
-          card.className = 'card';
+          card.className = TUNER_TEST_IDS.has(s.sample_id) ? 'card tuner' : 'card';
           card.innerHTML = `<img src="${s.image_file}" alt="${s.sample_id}"><div class="lbl">${s.sample_id}</div>`;
           card.onclick = () => {
             document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
@@ -206,7 +239,7 @@
             loadStl(s.sample_id);
             loadPointCloud(s.sample_id);
             loadReconNoisy(s.sample_id);
-            loadRecon(s.sample_id);
+            loadGeometryView(s.sample_id);
           };
           grid.appendChild(card);
           if (idx === 0) card.click();

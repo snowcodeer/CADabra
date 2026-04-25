@@ -54,15 +54,6 @@
     "op_count_estimate": 0
   },
   {
-    "sample_id": "deepcadimg_000055",
-    "image_file": "./deepcad_images/deepcadimg_000055.png",
-    "code_preview": "import cadquery as cq\n# Generating a workplane for sketch 0\nwp_sketch0 = cq.Workplane(cq.Plane(cq.Vector(-0.5, -0.25, 0.0), cq.Vector(1.0, 0.0, 0.0), cq.Vector(0.0, 0.0, 1.0)))\nloop0=wp_sketch0.moveTo(1.0, 0.0).threePointArc((1.25, 0.25), (1.0, 0.5)).lineTo(0.0, 0.5).threePointArc((-0.25, 0.25), (0.0, 0.0)).close()\nloop1=wp_sketch0.moveTo(0.0, 0.25).circle(0.13157894736842105)\nloop2=wp_sketch0.moveTo(1.0, 0.25).circle(0.13157894736842105)\nsolid0=wp_sketch0.add(loop0).add(loop1).add(loop2).extrud",
-    "dataset": "CADCODER/DeepCAD-CQ-Vision-Paired",
-    "row_index": 54,
-    "code_length": 520,
-    "op_count_estimate": 0
-  },
-  {
     "sample_id": "deepcadimg_000060",
     "image_file": "./deepcad_images/deepcadimg_000060.png",
     "code_preview": "import cadquery as cq\n# Generating a workplane for sketch 0\nwp_sketch0 = cq.Workplane(cq.Plane(cq.Vector(-0.75, -0.421875, 0.0), cq.Vector(1.0, 0.0, 0.0), cq.Vector(0.0, 0.0, 1.0)))\nloop0=wp_sketch0.moveTo(1.296875, 0.0).lineTo(1.296875, 1.0648026315789474).lineTo(0.0, 1.0648026315789474).lineTo(0.0, 0.0).close()\nloop1=wp_sketch0.moveTo(0.24572368421052632, 0.08190789473684211).circle(0.05460526315789474)\nloop2=wp_sketch0.moveTo(0.24572368421052632, 0.9692434210526316).circle(0.05460526315789474",
@@ -87,15 +78,6 @@
     "dataset": "CADCODER/DeepCAD-CQ-Vision-Paired",
     "row_index": 4396,
     "code_length": 1480,
-    "op_count_estimate": 1
-  },
-  {
-    "sample_id": "deepcadimg_008104",
-    "image_file": "./deepcad_images/deepcadimg_008104.png",
-    "code_preview": "import cadquery as cq\n# Generating a workplane for sketch 0\nwp_sketch0 = cq.Workplane(cq.Plane(cq.Vector(0.0, -0.75, 0.0), cq.Vector(3.749399456654644e-33, 1.0, -6.123233995736766e-17), cq.Vector(1.0, 0.0, 6.123233995736766e-17)))\nloop0=wp_sketch0.moveTo(0.7578947368421053, 0.0).circle(0.7578947368421053)\nloop1=wp_sketch0.moveTo(0.631578947368421, -0.25263157894736843).threePointArc((0.475911934460244, 0.0), (0.631578947368421, 0.25263157894736843)).lineTo(0.631578947368421, 0.6).threePointArc((",
-    "dataset": "CADCODER/DeepCAD-CQ-Vision-Paired",
-    "row_index": 8103,
-    "code_length": 1036,
     "op_count_estimate": 1
   },
   {
@@ -214,15 +196,6 @@
     "row_index": 69871,
     "code_length": 1849,
     "op_count_estimate": 9
-  },
-  {
-    "sample_id": "deepcadimg_073806",
-    "image_file": "./deepcad_images/deepcadimg_073806.png",
-    "code_preview": "import cadquery as cq\n# Generating a workplane for sketch 0\nwp_sketch0 = cq.Workplane(cq.Plane(cq.Vector(0.0, 0.1015625, 0.0), cq.Vector(1.0, 0.0, 0.0), cq.Vector(0.0, 0.0, 1.0)))\nloop0=wp_sketch0.moveTo(0.10263157894736842, 0.0).lineTo(0.10263157894736842, -0.10263157894736842).lineTo(0.6473684210526316, -0.10263157894736842).lineTo(0.6473684210526316, 0.0).lineTo(0.75, 0.0).lineTo(0.75, 0.3394736842105263).lineTo(0.6473684210526316, 0.3394736842105263).lineTo(0.6473684210526316, 0.378947368421",
-    "dataset": "CADCODER/DeepCAD-CQ-Vision-Paired",
-    "row_index": 73805,
-    "code_length": 1850,
-    "op_count_estimate": 7
   },
   {
     "sample_id": "deepcadimg_078812",
