@@ -6,6 +6,20 @@ maps. The PNG is the handoff artifact consumed by the downstream Claude
 Vision stage.
 
 See RENDER_CONTEXT.md for the full specification.
+
+Output sanity checks (per spec, "What good output looks like"):
+    - Final image is exactly 3072x1024 pixels.
+    - Top row is +Z, +X, +Y; bottom row is -Z, -X, -Y.
+    - Each cell shows an RGB shaded render on the left and a colourised
+      depth map on the right, both labelled with their direction.
+    - Depth panels use the matplotlib `plasma` colormap with warm = near
+      and cool = far. Background pixels are dark gray (40, 40, 40).
+    - The mesh surface is rendered as neutral mid-gray (#AAAAAA) on a
+      white background, with no perspective distortion.
+
+CLI usage:
+    python -m backend.pipeline.stl_renderer <input.stl> <output.png>
+    python -m backend.pipeline.stl_renderer --verify <output.png>
 """
 
 from __future__ import annotations
@@ -220,19 +234,65 @@ def render_stl_to_grid(stl_path: str | Path, output_path: str | Path) -> Path:
     return output_path
 
 
+def verify_grid(png_path: str | Path) -> bool:
+    """Assert that a generated PNG matches the expected grid dimensions.
+
+    Returns True on success and prints a short diagnostic line. Raises
+    AssertionError with a clear message if the file is missing or the
+    pixel size does not match (GRID_WIDTH, GRID_HEIGHT).
+    """
+    png_path = Path(png_path)
+    if not png_path.is_file():
+        raise AssertionError(f"Grid PNG not found: {png_path}")
+
+    with Image.open(png_path) as img:
+        size = img.size
+
+    expected = (GRID_WIDTH, GRID_HEIGHT)
+    if size != expected:
+        raise AssertionError(
+            f"Grid size mismatch for {png_path}: got {size}, expected {expected}"
+        )
+
+    print(f"[stl_renderer] OK {png_path} matches {expected[0]}x{expected[1]}")
+    return True
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="stl_renderer",
         description="Render an STL mesh into a 3072x1024 6-view PNG grid.",
     )
-    parser.add_argument("stl_path", type=Path, help="Input .stl mesh file")
-    parser.add_argument("output_path", type=Path, help="Output .png file path")
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Verify an existing grid PNG matches the expected dimensions.",
+    )
+    parser.add_argument(
+        "input_path",
+        type=Path,
+        help="Input .stl mesh file (or grid PNG when --verify is set)",
+    )
+    parser.add_argument(
+        "output_path",
+        type=Path,
+        nargs="?",
+        help="Output .png file path (omit when --verify is set)",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    render_stl_to_grid(args.stl_path, args.output_path)
+    if args.verify:
+        if args.output_path is not None:
+            raise SystemExit("--verify takes a single PNG path; output_path not allowed")
+        verify_grid(args.input_path)
+        return 0
+
+    if args.output_path is None:
+        raise SystemExit("output_path is required when not using --verify")
+    render_stl_to_grid(args.input_path, args.output_path)
     return 0
 
 
