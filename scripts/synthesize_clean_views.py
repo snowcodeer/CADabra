@@ -199,6 +199,23 @@ Each cell is split into two halves:
 - LEFT half:  grayscale depth render (darker = nearer to camera)
 - RIGHT half: black-on-white silhouette mask of the same view
 
+DEPTH HALF (LEFT) - PRESERVE HEIGHT STEPS AND BANDS. DO NOT FLATTEN.
+The left half encodes surface height: each clearly different brightness level is
+a different coplanar face, step, shoulder, or depth tier (e.g. L-shaped step on
+a top face, counterbore rings, abutting regions at different heights).
+- Keep the SAME NUMBER of distinct gray levels as the input, in the SAME
+  relative order (which tone is darker / lighter must match the input).
+- You may smooth speckle and ragged pixels WITHIN a single band; you may
+  sharpen the boundary BETWEEN two bands; you may straighten step edges that
+  should be axis-aligned. You may NOT merge two or more bands into one
+  uniform gray — that erases engineering depth context the downstream CAD
+  inference needs.
+- If the input shows side-by-side or concentric regions at different grays,
+  the output must still show all of them as separate regions (cleaner edges,
+  same tier count).
+- Only the RIGHT half (silhouette) uses the hole/noise rules below; the LEFT
+  half is for depth fidelity, not for "simplifying away" real geometry.
+
 ABSOLUTE RULE - PRESERVE OVERALL SIZE, POSITION AND PROPORTIONS.
 The size, position and aspect ratio of each silhouette in the input is correct.
 The cleaned output must occupy the same cell, at the same overall scale, with
@@ -263,12 +280,12 @@ NEVER invent symmetric features. If Front + Back show a real bore, keep it
 in Front + Back; do NOT add a matching opening to Right or Left unless those
 views already show one.
 
-When you redraw each silhouette:
-  - Reproduce the outer outline at the SAME size and position as the input.
-  - Fill all noise gaps inside.
-  - Keep the real openings exactly where the input has them.
-  - Make every kept edge crisp and clean (straight where straight, smooth
-    curves where curved).
+When you redraw each cell:
+  - LEFT (depth): preserve all height bands; denoise inside bands only; do not
+    homogenize distinct grays into one flat surface.
+  - RIGHT (silhouette): reproduce the outer outline at the SAME size and
+    position as the input; fill noise gaps inside; keep real openings; make
+    edges crisp (straight where straight, smooth curves where curved).
 
 KEEP the same 3x2 LAYOUT and the same 6 views in the same positions. KEEP the
 depth-then-silhouette internal split of each cell. Use grayscale only. Do NOT
