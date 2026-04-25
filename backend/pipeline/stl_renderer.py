@@ -81,6 +81,23 @@ def load_mesh(stl_path: str | Path) -> pv.PolyData:
     return mesh
 
 
+def _setup_lights(plotter: pv.Plotter) -> None:
+    """Install the spec's three-light rig: key + fill + soft headlight ambient."""
+    plotter.remove_all_lights()
+
+    key_light = pv.Light(position=(1.0, 1.0, 2.0), focal_point=(0.0, 0.0, 0.0))
+    key_light.intensity = 0.8
+    plotter.add_light(key_light)
+
+    fill_light = pv.Light(position=(-1.0, -0.5, 0.5), focal_point=(0.0, 0.0, 0.0))
+    fill_light.intensity = 0.3
+    plotter.add_light(fill_light)
+
+    ambient = pv.Light(light_type="headlight")
+    ambient.intensity = 0.2
+    plotter.add_light(ambient)
+
+
 def render_view(mesh: pv.PolyData, direction: str) -> tuple[np.ndarray, np.ndarray]:
     """Render one orthographic view; return (rgb_uint8, raw_depth_float)."""
     if direction not in CAMERA_VIEWS:
@@ -95,13 +112,13 @@ def render_view(mesh: pv.PolyData, direction: str) -> tuple[np.ndarray, np.ndarr
     plotter = pv.Plotter(off_screen=True, window_size=[PANEL_SIZE, PANEL_SIZE])
     try:
         plotter.set_background("white")
-        plotter.enable_lightkit()
+        _setup_lights(plotter)
         plotter.add_mesh(
             mesh,
             color=MESH_COLOR,
-            smooth_shading=False,
-            ambient=0.3,
-            diffuse=0.8,
+            smooth_shading=True,
+            ambient=0.15,
+            diffuse=0.85,
             specular=0.0,
         )
         plotter.enable_parallel_projection()
