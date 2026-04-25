@@ -34,7 +34,7 @@ import pyvista as pv
 from PIL import Image, ImageDraw, ImageFont
 
 matplotlib.use("Agg")
-from matplotlib import cm  # noqa: E402
+from matplotlib import colormaps as _mpl_colormaps  # noqa: E402
 
 PANEL_SIZE = 512
 MESH_COLOR = "#AAAAAA"
@@ -116,15 +116,30 @@ def render_view(mesh: pv.PolyData, direction: str) -> tuple[np.ndarray, np.ndarr
     return rgb, np.asarray(depth, dtype=np.float32)
 
 
-def depth_to_colormap(depth: np.ndarray) -> np.ndarray:
+def depth_to_colormap(
+    depth: np.ndarray,
+    background_mask: np.ndarray | None = None,
+) -> np.ndarray:
     """Convert a raw depth buffer into a false-coloured RGB depth map.
 
     Background pixels (no surface hit) are painted with `BG_DEPTH`. Surface
     depths are normalised to 0-1 using only valid pixels, then inverted so
     near surfaces map to warm colours via matplotlib's ``plasma`` colormap.
+
+    `background_mask` (preferred) is a boolean array, True where there is no
+    surface. When omitted, the function falls back to detecting NaN/Inf and
+    pixels at >= 1.0; in practice that fallback is unreliable because PyVista
+    returns world-space depth, so callers should supply the mask explicitly.
     """
     depth = np.asarray(depth, dtype=np.float32)
-    background = ~np.isfinite(depth) | (depth >= 1.0)
+    if background_mask is None:
+        background = ~np.isfinite(depth) | (depth >= 1.0)
+    else:
+        background = np.asarray(background_mask, dtype=bool)
+        if background.shape != depth.shape:
+            raise ValueError(
+                f"background_mask shape {background.shape} does not match depth {depth.shape}"
+            )
     surface = ~background
 
     out = np.zeros((*depth.shape, 3), dtype=np.uint8)
@@ -143,7 +158,7 @@ def depth_to_colormap(depth: np.ndarray) -> np.ndarray:
         normalised = (surface_vals - d_min) / (d_max - d_min)
         normalised = 1.0 - normalised
 
-    cmap = cm.get_cmap("plasma")
+    cmap = _mpl_colormaps["plasma"]
     colored = cmap(normalised)[:, :3]
     out[surface] = (colored * 255.0).astype(np.uint8)
     return out
@@ -221,7 +236,8 @@ def render_stl_to_grid(stl_path: str | Path, output_path: str | Path) -> Path:
     for direction in CAMERA_VIEWS:
         rgb, raw_depth = render_view(mesh, direction)
         renders[direction] = rgb
-        depth_maps[direction] = depth_to_colormap(raw_depth)
+        bg_mask = (rgb == 255).all(axis=-1)
+        depth_maps[direction] = depth_to_colormap(raw_depth, background_mask=bg_mask)
 
     grid = build_grid(renders, depth_maps)
     if grid.size != (GRID_WIDTH, GRID_HEIGHT):
