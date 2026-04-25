@@ -37,6 +37,8 @@ matplotlib.use("Agg")
 from matplotlib import colormaps as _mpl_colormaps  # noqa: E402
 
 PANEL_SIZE = 512
+RENDER_PANEL_SIZE = 400
+CROP_PADDING_FRAC = 0.1
 MESH_COLOR = "#AAAAAA"
 BG_DEPTH = (30, 30, 30)
 FLAT_SURFACE_NORMALISED = 0.5
@@ -80,6 +82,53 @@ def load_mesh(stl_path: str | Path) -> pv.PolyData:
         f"Z[{zmin:.3f}, {zmax:.3f}]"
     )
     return mesh
+
+
+def _crop_to_object(
+    rgb: np.ndarray,
+    depth_color: np.ndarray,
+    padding: float = CROP_PADDING_FRAC,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Crop RGB + colourised depth to the object's bounding box with padding.
+
+    The object is defined as the set of pixels in `rgb` that are not
+    near-white (< 250 in any channel). Both arrays are cropped to the same
+    box so RGB and depth stay pixel-aligned.
+    """
+    if rgb.shape[:2] != depth_color.shape[:2]:
+        raise ValueError(
+            f"rgb shape {rgb.shape[:2]} does not match depth shape {depth_color.shape[:2]}"
+        )
+
+    is_object = ~(rgb >= 250).all(axis=-1)
+    if not np.any(is_object):
+        return rgb, depth_color
+
+    rows = np.any(is_object, axis=1)
+    cols = np.any(is_object, axis=0)
+    r_min, r_max = int(np.argmax(rows)), int(len(rows) - 1 - np.argmax(rows[::-1]))
+    c_min, c_max = int(np.argmax(cols)), int(len(cols) - 1 - np.argmax(cols[::-1]))
+
+    h, w = rgb.shape[:2]
+    pad_r = int(round((r_max - r_min) * padding))
+    pad_c = int(round((c_max - c_min) * padding))
+    r_min = max(0, r_min - pad_r)
+    r_max = min(h - 1, r_max + pad_r)
+    c_min = max(0, c_min - pad_c)
+    c_max = min(w - 1, c_max + pad_c)
+
+    return (
+        rgb[r_min : r_max + 1, c_min : c_max + 1],
+        depth_color[r_min : r_max + 1, c_min : c_max + 1],
+    )
+
+
+def _resize_panel(arr: np.ndarray, size: int = RENDER_PANEL_SIZE) -> np.ndarray:
+    """Resize an HxWx3 uint8 panel to size x size using PIL LANCZOS."""
+    if arr.dtype != np.uint8 or arr.ndim != 3 or arr.shape[2] != 3:
+        raise ValueError(f"Expected HxWx3 uint8 array, got shape {arr.shape} dtype {arr.dtype}")
+    img = Image.fromarray(arr).resize((size, size), Image.LANCZOS)
+    return np.asarray(img, dtype=np.uint8)
 
 
 def _background_mask(rgb: np.ndarray, raw_depth: np.ndarray) -> np.ndarray:
@@ -277,9 +326,11 @@ def render_stl_to_grid(stl_path: str | Path, output_path: str | Path) -> Path:
     depth_maps: dict[str, np.ndarray] = {}
     for direction in CAMERA_VIEWS:
         rgb, raw_depth = render_view(mesh, direction)
-        renders[direction] = rgb
         bg_mask = _background_mask(rgb, raw_depth)
-        depth_maps[direction] = depth_to_colormap(raw_depth, background_mask=bg_mask)
+        depth_color = depth_to_colormap(raw_depth, background_mask=bg_mask)
+        rgb_cropped, depth_cropped = _crop_to_object(rgb, depth_color)
+        renders[direction] = _resize_panel(rgb_cropped, RENDER_PANEL_SIZE)
+        depth_maps[direction] = _resize_panel(depth_cropped, RENDER_PANEL_SIZE)
 
     grid = build_grid(renders, depth_maps)
     if grid.size != (GRID_WIDTH, GRID_HEIGHT):
