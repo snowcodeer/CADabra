@@ -17,7 +17,7 @@ from pathlib import Path
 import matplotlib
 import numpy as np
 import pyvista as pv
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 matplotlib.use("Agg")
 from matplotlib import cm  # noqa: E402
@@ -135,15 +135,89 @@ def depth_to_colormap(depth: np.ndarray) -> np.ndarray:
     return out
 
 
+CELL_WIDTH = PANEL_SIZE * 2
+CELL_HEIGHT = PANEL_SIZE
+GRID_WIDTH = CELL_WIDTH * 3
+GRID_HEIGHT = CELL_HEIGHT * 2
+
+
+def _load_label_font() -> ImageFont.ImageFont:
+    try:
+        return ImageFont.truetype("DejaVuSans-Bold.ttf", 22)
+    except OSError:
+        return ImageFont.load_default()
+
+
+def _draw_label(draw: ImageDraw.ImageDraw, x: int, y: int, text: str, font) -> None:
+    pad = 4
+    try:
+        bbox = draw.textbbox((x + pad, y + pad), text, font=font)
+    except AttributeError:
+        w, h = draw.textsize(text, font=font)
+        bbox = (x + pad, y + pad, x + pad + w, y + pad + h)
+    draw.rectangle(
+        (bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad),
+        fill=(0, 0, 0, 200),
+    )
+    draw.text((x + pad, y + pad), text, fill="white", font=font)
+
+
 def build_grid(
     renders: dict[str, np.ndarray],
     depth_maps: dict[str, np.ndarray],
 ) -> Image.Image:
-    raise NotImplementedError
+    """Compose 6 RGB+Depth pairs into a single 3072x1024 PIL image."""
+    missing = [d for row in GRID_ORDER for d in row if d not in renders or d not in depth_maps]
+    if missing:
+        raise ValueError(f"Missing renders/depths for directions: {missing}")
+
+    canvas = Image.new("RGB", (GRID_WIDTH, GRID_HEIGHT), color="white")
+    draw = ImageDraw.Draw(canvas, "RGBA")
+    font = _load_label_font()
+
+    for row_idx, row in enumerate(GRID_ORDER):
+        for col_idx, direction in enumerate(row):
+            cell_x = col_idx * CELL_WIDTH
+            cell_y = row_idx * CELL_HEIGHT
+
+            rgb_img = Image.fromarray(renders[direction]).resize(
+                (PANEL_SIZE, PANEL_SIZE), Image.BILINEAR
+            )
+            depth_img = Image.fromarray(depth_maps[direction]).resize(
+                (PANEL_SIZE, PANEL_SIZE), Image.NEAREST
+            )
+
+            canvas.paste(rgb_img, (cell_x, cell_y))
+            canvas.paste(depth_img, (cell_x + PANEL_SIZE, cell_y))
+            _draw_label(draw, cell_x, cell_y, f"{direction} RGB", font)
+            _draw_label(draw, cell_x + PANEL_SIZE, cell_y, f"{direction} Depth", font)
+
+    return canvas
 
 
 def render_stl_to_grid(stl_path: str | Path, output_path: str | Path) -> Path:
-    raise NotImplementedError
+    """End-to-end: STL path in, 3072x1024 PNG written to output_path."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    mesh = load_mesh(stl_path)
+
+    renders: dict[str, np.ndarray] = {}
+    depth_maps: dict[str, np.ndarray] = {}
+    for direction in CAMERA_VIEWS:
+        rgb, raw_depth = render_view(mesh, direction)
+        renders[direction] = rgb
+        depth_maps[direction] = depth_to_colormap(raw_depth)
+
+    grid = build_grid(renders, depth_maps)
+    if grid.size != (GRID_WIDTH, GRID_HEIGHT):
+        raise RuntimeError(
+            f"Unexpected grid size {grid.size}, want ({GRID_WIDTH}, {GRID_HEIGHT})"
+        )
+
+    grid.save(output_path, format="PNG")
+    print(f"[stl_renderer] Wrote {output_path} ({grid.size[0]}x{grid.size[1]})")
+    return output_path
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
