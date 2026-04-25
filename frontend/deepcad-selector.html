@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepCAD Realistic Sample Selector</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #f7f7f7; }
+    header { padding: 12px 16px; background: #fff; border-bottom: 1px solid #ddd; }
+    main { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; padding: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; }
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; cursor: pointer; }
+    .card img { width: 100%; display: block; background: #eee; }
+    .card .lbl { font-size: 12px; padding: 6px; }
+    .card.active { border-color: #2563eb; box-shadow: 0 0 0 1px #2563eb inset; }
+    .panel { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 10px; }
+    pre { white-space: pre-wrap; font-size: 12px; max-height: 70vh; overflow: auto; background: #111; color: #eee; border-radius: 6px; padding: 8px; }
+    .muted { font-size: 12px; color: #555; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <header><strong>DeepCAD Selector</strong> - 80 real dataset samples (image+code pairs) for realism review</header>
+  <main>
+    <section>
+      <div class="muted" id="status">Loading DeepCAD samples...</div>
+      <div class="grid" id="grid"></div>
+    </section>
+    <aside class="panel">
+      <div id="meta" class="muted">Pick a sample</div>
+      <pre id="code"></pre>
+    </aside>
+  </main>
+
+  <script>
+    const grid = document.getElementById('grid');
+    const status = document.getElementById('status');
+    const meta = document.getElementById('meta');
+    const code = document.getElementById('code');
+
+    fetch('./deepcad_image_gallery.json')
+      .then(r => r.json())
+      .then(samples => {
+        status.textContent = `Loaded ${samples.length} DeepCAD samples`;
+        samples.forEach((s, idx) => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = `<img src="${s.image_file}" alt="${s.sample_id}"><div class="lbl">${s.sample_id}</div>`;
+          card.onclick = () => {
+            document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            meta.textContent = `${s.sample_id} | ${s.dataset} | row ${s.row_index}`;
+            code.textContent = s.code_preview || '(no code preview)';
+          };
+          grid.appendChild(card);
+          if (idx === 0) card.click();
+        });
+      })
+      .catch(err => {
+        status.textContent = `Failed to load gallery: ${err}`;
+      });
+  </script>
+</body>
+</html>
