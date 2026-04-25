@@ -186,35 +186,57 @@ def render_clean_input_grid(stl_path: Path, out_path: Path) -> dict:
 # OpenAI gpt-image-2 cleanup
 # ---------------------------------------------------------------------------
 
-CLEANUP_PROMPT = """This is a 6-view orthographic engineering blueprint of one mechanical CAD part.
+CLEANUP_PROMPT = """This is a 6-view orthographic engineering blueprint of one mechanical CAD part,
+reverse-engineered from a noisy 3D point-cloud scan. Your job is to think like a
+CAD designer and INFER the part's intended shape, then redraw the views as if
+they came from the original CAD model rather than from a noisy scan.
 
-Layout (do NOT change): a 3 columns x 2 rows grid of six views in this order
-- top row, left to right:    Top, Bottom, Front
+LAYOUT (do NOT change): a 3 columns x 2 rows grid of six views in this order
+- top row, left to right:     Top, Bottom, Front
 - bottom row, left to right:  Back, Right, Left
 Each cell is split into two halves:
 - LEFT half:  grayscale depth render (darker = nearer to camera)
 - RIGHT half: black-on-white silhouette mask of the same view
 
-Your job is to clean up the views as if a CAD draftsperson were polishing
-them for publication:
+Your most important job is to DISTINGUISH two kinds of gap that look similar
+in the raw views but mean very different things:
 
-1. Make every silhouette outline crisp, axis-aligned where appropriate, and
-   continuous. Remove ragged speckle and small noise pinholes ALONG THE OUTER
-   BOUNDARY only.
-2. Fill small unintentional surface gaps (tiny isolated white pixels) inside
-   the dark silhouette. These are reconstruction noise, not real openings.
-3. CRITICAL: PRESERVE every dark hole, slot, or cutout in the depth view AND
-   every white island larger than ~12 px in diameter inside the dark silhouette.
-   Those are real CAD through-holes. NEVER fill them. NEVER bridge across them.
-   When in doubt, leave a feature alone.
-4. PRESERVE the rough symmetry of the part. If a hole appears in one view it
-   should remain in the matching opposing view.
-5. KEEP THE SAME 3x2 LAYOUT and the same 6 views in the same positions. KEEP
-   the depth-then-silhouette internal split of each cell. Do not add labels,
-   borders, dimensions, captions, decorative elements, perspective, shading
-   or color outside grayscale.
-6. The output should look like a clean CAD orthographic drawing set, not a
-   reinterpretation. No extra geometry. No artistic license."""
+(A) NOISE GAPS - these are RECONSTRUCTION ARTIFACTS, infer the missing shape:
+    - small, irregularly-shaped white blobs INSIDE the dark silhouette
+    - ragged or scalloped patches along the silhouette boundary
+    - holes that DO NOT appear in the matching opposite view
+      (a real Top hole would also show up in Bottom; a real Front hole would
+      also show up in Back)
+    - holes that break the part's axis-aligned / mirrored symmetry
+    - depth-view splotches that don't correspond to a clean circle/slot
+    => INFER what the surface should look like and CLOSE these gaps.
+       Fill them with the same dark silhouette color. Reconstruct the
+       surface based on the surrounding geometry and the part's symmetry.
+
+(B) REAL DESIGN FEATURES - PRESERVE these, never fill them:
+    - clean, regular circular or slot-shaped openings
+    - holes that DO appear in the matching opposite view at the same
+      location (genuine through-bores show up in BOTH Front+Back, or
+      BOTH Left+Right, or BOTH Top+Bottom)
+    - dark concentric rings in a depth view that indicate a counterbore
+      or through-hole going down the view axis
+    - features that respect the part's symmetry plane
+
+When you redraw each silhouette:
+- Make every outer boundary crisp, axis-aligned where appropriate, and
+  continuous. Reconstruct straight edges as straight, curved edges as smooth.
+- Use the part's symmetry to repair one view from its mirrored counterpart
+  (Front <-> Back, Left <-> Right, Top <-> Bottom).
+- Use the depth view to validate the silhouette: if the depth view shows a
+  clean filled face, the silhouette must be solid; if the depth view shows
+  a clean dark circle, the silhouette must have a matching white circle.
+- The cleaned silhouette should look like a CAD drawing, not a scan.
+
+KEEP the same 3x2 LAYOUT and the same 6 views in the same positions. KEEP the
+depth-then-silhouette internal split of each cell. Use grayscale only. Do NOT
+add labels, captions, dimensions, borders, arrows, perspective, shading or
+artistic flourishes. No extra geometry, no decoration. The result should look
+like a clean engineering orthographic set."""
 
 
 def _png_b64_to_bytes(b64: str) -> bytes:
