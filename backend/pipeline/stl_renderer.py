@@ -38,7 +38,8 @@ from matplotlib import colormaps as _mpl_colormaps  # noqa: E402
 
 PANEL_SIZE = 512
 MESH_COLOR = "#AAAAAA"
-BG_DEPTH = (40, 40, 40)
+BG_DEPTH = (30, 30, 30)
+FLAT_SURFACE_NORMALISED = 0.5
 
 CAMERA_VIEWS: dict[str, dict[str, tuple[float, float, float]]] = {
     "+Z": {"position": (0.0, 0.0, 1.0), "up": (0.0, 1.0, 0.0)},
@@ -79,6 +80,22 @@ def load_mesh(stl_path: str | Path) -> pv.PolyData:
         f"Z[{zmin:.3f}, {zmax:.3f}]"
     )
     return mesh
+
+
+def _background_mask(rgb: np.ndarray, raw_depth: np.ndarray) -> np.ndarray:
+    """Return True where the pixel is background, by RGB whiteness OR far clip.
+
+    Pure-RGB detection alone leaks anti-aliased edge pixels (which appear
+    almost-white) into the surface set, but those same pixels carry the
+    far-clip depth and would otherwise blow up per-view normalisation. We
+    union both signals so flat surfaces correctly collapse to d_min == d_max.
+    """
+    rgb_bg = (rgb >= 250).all(axis=-1)
+    far_clip = float(raw_depth.max())
+    spread = float(raw_depth.max() - raw_depth.min())
+    tol = max(spread * 0.001, 1e-5)
+    depth_bg = raw_depth >= (far_clip - tol)
+    return rgb_bg | depth_bg
 
 
 def _setup_lights(plotter: pv.Plotter) -> None:
@@ -137,20 +154,28 @@ def depth_to_colormap(
     depth: np.ndarray,
     background_mask: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Convert a raw depth buffer into a false-coloured RGB depth map.
+    """Convert a raw depth buffer into a per-view plasma-coloured depth map.
 
-    Background pixels (no surface hit) are painted with `BG_DEPTH`. Surface
-    depths are normalised to 0-1 using only valid pixels, then inverted so
-    near surfaces map to warm colours via matplotlib's ``plasma`` colormap.
+    Per GRID_FORMAT_SPEC.md:
+      - Normalise using only object pixels (not background).
+      - Invert so high normalised value = closest = bright yellow.
+      - Completely flat surfaces are mapped to mid colormap (orange) so they
+        are still visually distinct from the background.
+      - Background pixels are painted ``BG_DEPTH`` (very dark gray, distinct
+        from the dark-purple end of plasma).
 
-    `background_mask` (preferred) is a boolean array, True where there is no
-    surface. When omitted, the function falls back to detecting NaN/Inf and
-    pixels at >= 1.0; in practice that fallback is unreliable because PyVista
-    returns world-space depth, so callers should supply the mask explicitly.
+    `background_mask` (strongly preferred) is a boolean array, True where
+    there is no surface. When omitted, falls back to detecting NaN/Inf or
+    values within 0.1% of the array's far-clip max — this fallback is only
+    reliable when the renderer guarantees a well-defined far clip.
     """
     depth = np.asarray(depth, dtype=np.float32)
     if background_mask is None:
-        background = ~np.isfinite(depth) | (depth >= 1.0)
+        if np.isfinite(depth).any():
+            far_clip = float(np.nanmax(depth))
+            background = ~np.isfinite(depth) | (depth >= far_clip * 0.999)
+        else:
+            background = np.ones_like(depth, dtype=bool)
     else:
         background = np.asarray(background_mask, dtype=bool)
         if background.shape != depth.shape:
@@ -170,7 +195,7 @@ def depth_to_colormap(
     d_max = float(surface_vals.max())
 
     if d_max <= d_min:
-        normalised = np.ones_like(surface_vals)
+        normalised = np.full_like(surface_vals, FLAT_SURFACE_NORMALISED)
     else:
         normalised = (surface_vals - d_min) / (d_max - d_min)
         normalised = 1.0 - normalised
@@ -253,7 +278,7 @@ def render_stl_to_grid(stl_path: str | Path, output_path: str | Path) -> Path:
     for direction in CAMERA_VIEWS:
         rgb, raw_depth = render_view(mesh, direction)
         renders[direction] = rgb
-        bg_mask = (rgb == 255).all(axis=-1)
+        bg_mask = _background_mask(rgb, raw_depth)
         depth_maps[direction] = depth_to_colormap(raw_depth, background_mask=bg_mask)
 
     grid = build_grid(renders, depth_maps)
