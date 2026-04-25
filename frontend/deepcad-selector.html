@@ -179,7 +179,7 @@
 
         const hasClean = cohesion && cohesion.geometry_view_clean;
         if (hasClean) {
-          cleanMeta.innerHTML = '<strong>gpt-image-2 cleanup:</strong> &nbsp;small surface gaps infilled, real holes preserved.';
+          cleanMeta.innerHTML = '<strong>gpt-image-2 cleanup:</strong> &nbsp;silhouette noise infilled and real holes preserved; depth bands (height steps) kept as separate grays.';
         } else {
           cleanMeta.innerHTML = '<strong>gpt-image-2 cleanup:</strong> &nbsp;not yet generated for this sample.';
         }
