@@ -27,8 +27,10 @@ Render rules:
     - Orthographic projection (no perspective).
     - Mesh colour #AAAAAA, smooth shading, three-light rig
       (key 0.8 + fill 0.3 + headlight 0.2).
-    - Per-view depth normalisation against object pixels only;
-      flat surfaces map to the mid plasma value (0.5).
+    - Per-view depth normalisation against object pixels only,
+      coloured with matplotlib's RdYlBu_r colormap (red=near,
+      blue=far); flat surfaces fall back to a subtle centre-to-edge
+      radial gradient in the warm 0.92-1.0 range.
     - Depth background is #1e1e1e, RGB background is white.
     - Both panels are cropped to the object bbox + 10% padding and
       LANCZOS-resized to exactly 400x400.
@@ -109,10 +111,12 @@ FULL_HEIGHT = HEADER_HEIGHT + GRID_HEIGHT + LEGEND_HEIGHT
 
 HEADER_TITLE = "SCAN-TO-CAD  |  6-View Orthographic Grid"
 LEGEND_TEXT = (
-    "DEPTH MAP KEY:  \u25A0 BRIGHT YELLOW = closest to camera  \u2192  "
-    "\u25A0 DARK PURPLE = furthest from camera  |  "
+    "DEPTH MAP KEY:  \u25A0 RED/ORANGE = closest to camera  \u2192  "
+    "\u25A0 DARK BLUE = furthest from camera  |  "
+    "YELLOW = mid-distance  |  "
     "Background = #1e1e1e (not part of object)"
 )
+DEPTH_COLORMAP = "RdYlBu_r"
 
 if sys.platform.startswith("linux"):
     pv.start_xvfb()
@@ -267,15 +271,16 @@ def depth_to_colormap(
     depth: np.ndarray,
     background_mask: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Convert a raw depth buffer into a per-view plasma-coloured depth map.
+    """Convert a raw depth buffer into a per-view RdYlBu_r-coloured depth map.
 
     Per GRID_FORMAT_SPEC.md:
       - Normalise using only object pixels (not background).
-      - Invert so high normalised value = closest = bright yellow.
-      - Completely flat surfaces are mapped to mid colormap (orange) so they
-        are still visually distinct from the background.
-      - Background pixels are painted ``BG_DEPTH`` (very dark gray, distinct
-        from the dark-purple end of plasma).
+      - Invert so high normalised value = closest = red/orange.
+      - Completely flat surfaces fall back to a centre-to-edge radial
+        gradient in the warm 0.92-1.0 range so they read as intentional
+        rather than as a broken mid-colormap solid block.
+      - Background pixels are painted ``BG_DEPTH`` (#1e1e1e), distinct
+        from the dark-blue far end of the colormap.
 
     `background_mask` (strongly preferred) is a boolean array, True where
     there is no surface. When omitted, falls back to detecting NaN/Inf or
@@ -321,7 +326,7 @@ def depth_to_colormap(
         normalised = (surface_vals - d_min) / (d_max - d_min)
         normalised = 1.0 - normalised
 
-    cmap = _mpl_colormaps["plasma"]
+    cmap = _mpl_colormaps[DEPTH_COLORMAP]
     colored = cmap(normalised)[:, :3]
     out[surface] = (colored * 255.0).astype(np.uint8)
     return out
