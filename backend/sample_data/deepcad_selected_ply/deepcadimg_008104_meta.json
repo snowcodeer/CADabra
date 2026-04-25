@@ -1,0 +1,13 @@
+{
+  "ply_path": "/workspace/backend/sample_data/deepcad_selected_ply/deepcadimg_008104.ply",
+  "n_points": 2048,
+  "raw_extents_mm": [
+    0.37500000000000006,
+    1.5157895,
+    1.5153184
+  ],
+  "is_watertight_before_normalization": false,
+  "used_pytorch3d_fps": false,
+  "source_stl": "/workspace/backend/outputs/deepcad_selected_stl/deepcadimg_008104.stl",
+  "sample_id": "deepcadimg_008104"
+}

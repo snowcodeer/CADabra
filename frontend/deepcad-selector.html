@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepCAD Selector</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #f7f7f7; }
+    header { padding: 12px 16px; background: #fff; border-bottom: 1px solid #ddd; }
+    main { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; padding: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; max-height: calc(100vh - 90px); overflow: auto; }
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; cursor: pointer; }
+    .card img { width: 100%; display: block; background: #eee; }
+    .card .lbl { font-size: 12px; padding: 6px; }
+    .card.active { border-color: #2563eb; box-shadow: 0 0 0 1px #2563eb inset; }
+    .panel { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 10px; }
+    .muted { font-size: 12px; color: #555; margin-bottom: 8px; }
+    .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .compare-block { border: 1px solid #ddd; border-radius: 6px; overflow: hidden; background: #fafafa; }
+    .compare-block h4 { margin: 0; padding: 6px 8px; font-size: 12px; background: #f0f0f0; border-bottom: 1px solid #ddd; }
+    .compare-block img { width: 100%; height: 260px; object-fit: contain; display: block; background: #fff; }
+    #pcViewer { width: 100%; height: 260px; background: #fff; }
+    pre { white-space: pre-wrap; font-size: 12px; max-height: 34vh; overflow: auto; background: #111; color: #eee; border-radius: 6px; padding: 8px; }
+  </style>
+</head>
+<body>
+  <header><strong>DeepCAD Selector</strong> - selected samples with image vs point-cloud comparison</header>
+  <main>
+    <section>
+      <div class="muted" id="status">Loading selected DeepCAD samples...</div>
+      <div class="grid" id="grid"></div>
+    </section>
+    <aside class="panel">
+      <div id="meta" class="muted">Pick a sample</div>
+      <div class="compare">
+        <div class="compare-block">
+          <h4>Dataset image</h4>
+          <img id="previewImage" alt="Selected DeepCAD image" />
+        </div>
+        <div class="compare-block">
+          <h4>Generated point cloud (.ply)</h4>
+          <div id="pcViewer"></div>
+        </div>
+      </div>
+      <div class="muted" id="pcStatus" style="margin-top:8px;">Point cloud status: idle</div>
+      <pre id="code"></pre>
+    </aside>
+  </main>
+
+  <script type="module">
+    import * as THREE from './vendor/three.module.js';
+    import { OrbitControls } from './vendor/OrbitControls.js';
+    import { PLYLoader } from './vendor/PLYLoader.js';
+
+    const grid = document.getElementById('grid');
+    const status = document.getElementById('status');
+    const meta = document.getElementById('meta');
+    const code = document.getElementById('code');
+    const previewImage = document.getElementById('previewImage');
+    const pcStatus = document.getElementById('pcStatus');
+    const pcViewer = document.getElementById('pcViewer');
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xffffff);
+    const camera = new THREE.PerspectiveCamera(45, pcViewer.clientWidth / pcViewer.clientHeight, 0.01, 1000);
+    camera.position.set(2.2, 2.2, 2.2);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(pcViewer.clientWidth, pcViewer.clientHeight);
+    pcViewer.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 0, 0);
+
+    scene.add(new THREE.AxesHelper(0.8));
+
+    const plyLoader = new PLYLoader();
+    let currentPoints = null;
+
+    function setPcStatus(msg) {
+      pcStatus.textContent = `Point cloud status: ${msg}`;
+    }
+
+    function loadPointCloud(sampleId) {
+      setPcStatus(`loading ${sampleId}.ply ...`);
+      if (currentPoints) scene.remove(currentPoints);
+
+      const plyPath = `./deepcad_ply/${sampleId}.ply`;
+      plyLoader.load(
+        plyPath,
+        (geometry) => {
+          geometry.computeBoundingBox();
+          const center = new THREE.Vector3();
+          geometry.boundingBox.getCenter(center);
+          geometry.translate(-center.x, -center.y, -center.z);
+
+          const material = new THREE.PointsMaterial({
+            color: 0x1d4ed8,
+            size: 0.02,
+            sizeAttenuation: true,
+          });
+          currentPoints = new THREE.Points(geometry, material);
+          scene.add(currentPoints);
+
+          camera.position.set(2.2, 2.2, 2.2);
+          controls.target.set(0, 0, 0);
+          controls.update();
+
+          const count = geometry.attributes.position.count;
+          setPcStatus(`loaded ${sampleId}.ply (${count} points)`);
+        },
+        undefined,
+        (err) => {
+          console.error(err);
+          setPcStatus(`failed to load ${sampleId}.ply`);
+        }
+      );
+    }
+
+    function animate() {
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = pcViewer.clientWidth / pcViewer.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(pcViewer.clientWidth, pcViewer.clientHeight);
+    });
+
+    fetch('./deepcad_image_gallery.json')
+      .then(r => r.json())
+      .then(samples => {
+        status.textContent = `Loaded ${samples.length} selected DeepCAD samples`;
+        samples.forEach((s, idx) => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = `<img src="${s.image_file}" alt="${s.sample_id}"><div class="lbl">${s.sample_id}</div>`;
+          card.onclick = () => {
+            document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            meta.textContent = `${s.sample_id} | ${s.dataset} | row ${s.row_index}`;
+            code.textContent = s.code_preview || '(no code preview)';
+            previewImage.src = s.image_file;
+            loadPointCloud(s.sample_id);
+          };
+          grid.appendChild(card);
+          if (idx === 0) card.click();
+        });
+      })
+      .catch(err => {
+        status.textContent = `Failed to load gallery: ${err}`;
+      });
+  </script>
+</body>
+</html>
