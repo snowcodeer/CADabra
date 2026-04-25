@@ -1,24 +1,41 @@
 """STL to 6-view PNG grid renderer (Person 1 deliverable).
 
-Takes an .stl mesh file and produces a single 3072x1024 PNG containing 6
-orthographic renders (one per cube-face direction) paired with their depth
-maps. The PNG is the handoff artifact consumed by the downstream Claude
-Vision stage.
+Takes an .stl mesh file and produces a single 2400x1000 PNG containing
+6 orthographic renders (one per cube-face direction) paired with their
+depth maps. The PNG is the deterministic handoff artifact consumed by
+Claude Vision; its layout is the binding contract between renderer and
+prompt.
 
-See RENDER_CONTEXT.md for the full specification.
+The canonical specification is GRID_FORMAT_SPEC.md. If anything in this
+module diverges from that document the document wins; both must be
+updated together because the vision prompt makes hard pixel-level
+assumptions about the layout.
 
-Output sanity checks (per spec, "What good output looks like"):
-    - Final image is exactly 3072x1024 pixels.
-    - Top row is +Z, +X, +Y; bottom row is -Z, -X, -Y.
-    - Each cell shows an RGB shaded render on the left and a colourised
-      depth map on the right, both labelled with their direction.
-    - Depth panels use the matplotlib `plasma` colormap with warm = near
-      and cool = far. Background pixels are dark gray (40, 40, 40).
-    - The mesh surface is rendered as neutral mid-gray (#AAAAAA) on a
-      white background, with no perspective distortion.
+Output structure (top to bottom):
+    Header bar  : 2400x40   (#1a1a1a, 14px bold)
+                  Left:  "SCAN-TO-CAD  |  6-View Orthographic Grid"
+                  Right: "Part ID: {part_id}"
+    Grid area   : 2400x930  (3 cols x 2 rows of 800x465 cells)
+                  Row 1: +Z top,    +X right,  +Y front
+                  Row 2: -Z bottom, -X left,   -Y back
+                  Each cell: 800x40 label bar + 400x400 RGB + 400x400
+                  Depth + 800x25 sub-label bar, separated by 2px
+                  #333333 borders.
+    Legend bar  : 2400x30   (#111111, 12px) — depth colormap key
+
+Render rules:
+    - Orthographic projection (no perspective).
+    - Mesh colour #AAAAAA, smooth shading, three-light rig
+      (key 0.8 + fill 0.3 + headlight 0.2).
+    - Per-view depth normalisation against object pixels only;
+      flat surfaces map to the mid plasma value (0.5).
+    - Depth background is #1e1e1e, RGB background is white.
+    - Both panels are cropped to the object bbox + 10% padding and
+      LANCZOS-resized to exactly 400x400.
 
 CLI usage:
     python -m backend.pipeline.stl_renderer <input.stl> <output.png>
+    python -m backend.pipeline.stl_renderer --part-id <id> <input.stl> <output.png>
     python -m backend.pipeline.stl_renderer --verify <output.png>
 """
 
@@ -495,26 +512,41 @@ def render_stl_to_grid(
 
 
 def verify_grid(png_path: str | Path) -> bool:
-    """Assert that a generated PNG matches the expected grid dimensions.
+    """Assert that a generated PNG matches the GRID_FORMAT_SPEC dimensions.
 
-    Returns True on success and prints a short diagnostic line. Raises
-    AssertionError with a clear message if the file is missing or the
-    pixel size does not match (GRID_WIDTH, GRID_HEIGHT).
+    Verifies the full image is exactly (FULL_WIDTH, FULL_HEIGHT) and that
+    the dark header/legend bars sit at the expected pixel rows. Returns
+    True on success and prints a short diagnostic line. Raises
+    AssertionError with a clear message on any mismatch.
     """
     png_path = Path(png_path)
     if not png_path.is_file():
         raise AssertionError(f"Grid PNG not found: {png_path}")
 
     with Image.open(png_path) as img:
-        size = img.size
+        rgb_img = img.convert("RGB")
+        size = rgb_img.size
+        pixels = np.asarray(rgb_img)
 
-    expected = (GRID_WIDTH, GRID_HEIGHT)
+    expected = (FULL_WIDTH, FULL_HEIGHT)
     if size != expected:
         raise AssertionError(
-            f"Grid size mismatch for {png_path}: got {size}, expected {expected}"
+            f"Image size mismatch for {png_path}: got {size}, expected {expected}"
         )
 
-    print(f"[stl_renderer] OK {png_path} matches {expected[0]}x{expected[1]}")
+    header_row = pixels[HEADER_HEIGHT // 2]
+    if int(np.median(header_row.max(axis=-1))) > 0x30:
+        raise AssertionError(f"Header bar at y={HEADER_HEIGHT // 2} is not predominantly dark")
+
+    legend_y = HEADER_HEIGHT + GRID_HEIGHT + LEGEND_HEIGHT // 2
+    legend_row = pixels[legend_y]
+    if int(np.median(legend_row.max(axis=-1))) > 0x30:
+        raise AssertionError(f"Legend bar at y={legend_y} is not predominantly dark")
+
+    print(
+        f"[stl_renderer] OK {png_path} matches {expected[0]}x{expected[1]} "
+        f"(header + grid + legend bars present)"
+    )
     return True
 
 
