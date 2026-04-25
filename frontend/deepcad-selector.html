@@ -27,13 +27,19 @@
     .compare-block h4 .tag.clean { background: #dcfce7; color: #14532d; }
     .compare-block h4 .tag.truth { background: #f3f4f6; color: #374151; }
     .compare-block h4 .tag.geom  { background: #ede9fe; color: #4c1d95; }
+    .compare-block h4 .tag.synth { background: #fce7f3; color: #831843; }
     .geom-panel { background: #fafafa; border: 1px solid #ddd; border-radius: 8px; margin-top: 10px; overflow: hidden; }
     .geom-panel h4 { margin: 0; padding: 6px 10px; font-size: 12px; background: #f3f0fb; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+    .geom-panel.synth h4 { background: #fdf2f8; }
+    .geom-panel.synth h4 .tag.synth { background: #fbcfe8; color: #831843; }
     .geom-panel .meta-line { font-size: 11px; color: #4b5563; padding: 6px 10px 0 10px; line-height: 1.4; }
     .geom-panel .meta-line strong { color: #4c1d95; }
+    .geom-panel.synth .meta-line strong { color: #831843; }
     .geom-panel .img-wrap { padding: 8px 10px 10px 10px; }
     .geom-panel img { width: 100%; display: block; border-radius: 4px; background: #fff; }
     .geom-panel .empty { padding: 16px; font-size: 12px; color: #6b7280; text-align: center; }
+    .geom-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+    .geom-row .geom-panel { margin-top: 0; }
     #pcViewer, #stlViewer, #reconNoisyViewer { width: 100%; height: 260px; background: #fff; }
     pre { white-space: pre-wrap; font-size: 12px; max-height: 30vh; overflow: auto; background: #111; color: #eee; border-radius: 6px; padding: 8px; }
   </style>
@@ -64,11 +70,20 @@
       <div class="muted" id="stlStatus" style="margin-top:8px;">Original STL status: idle</div>
       <div class="muted" id="pcStatus">Point cloud status: idle</div>
       <div class="muted" id="reconNoisyStatus">Noisy reconstruction status: idle</div>
-      <div class="geom-panel">
-        <h4><span>4. Captured geometry representation (vision-graded)</span><span class="tag geom">ortho views</span></h4>
-        <div class="meta-line" id="geomMeta">Cohesion score: -</div>
-        <div class="img-wrap" id="geomImgWrap">
-          <div class="empty">Pick a sample to see its captured orthographic geometry view.</div>
+      <div class="geom-row">
+        <div class="geom-panel">
+          <h4><span>4. Captured geometry (raw recon ortho)</span><span class="tag geom">recon-only</span></h4>
+          <div class="meta-line" id="geomMeta">Cohesion score: -</div>
+          <div class="img-wrap" id="geomImgWrap">
+            <div class="empty">Pick a sample to see its captured orthographic geometry view.</div>
+          </div>
+        </div>
+        <div class="geom-panel synth">
+          <h4><span>5. Synthetic clean view (gpt-image-2)</span><span class="tag synth">image-gen</span></h4>
+          <div class="meta-line" id="cleanMeta"><strong>Image-gen cleanup:</strong> &nbsp;not yet generated for this sample.</div>
+          <div class="img-wrap" id="cleanImgWrap">
+            <div class="empty">Pick a TEST sample to see the gpt-image-2 cleaned ortho view.</div>
+          </div>
         </div>
       </div>
       <pre id="code"></pre>
@@ -143,6 +158,8 @@
     function loadGeometryView(sampleId) {
       const wrap = document.getElementById('geomImgWrap');
       const meta = document.getElementById('geomMeta');
+      const cleanWrap = document.getElementById('cleanImgWrap');
+      const cleanMeta = document.getElementById('cleanMeta');
       cohesionByIdPromise.then(cohesionById => {
         const cohesion = cohesionById[sampleId];
         if (cohesion) {
@@ -159,6 +176,20 @@
         img.onload = () => { wrap.innerHTML = ''; wrap.appendChild(img); };
         img.onerror = () => { wrap.innerHTML = '<div class="empty">Geometry view PNG not available for this sample yet.</div>'; };
         img.src = `./deepcad_geometry_views/${sampleId}_geometry.png`;
+
+        const hasClean = cohesion && cohesion.geometry_view_clean;
+        if (hasClean) {
+          cleanMeta.innerHTML = '<strong>gpt-image-2 cleanup:</strong> &nbsp;small surface gaps infilled, real holes preserved.';
+        } else {
+          cleanMeta.innerHTML = '<strong>gpt-image-2 cleanup:</strong> &nbsp;not yet generated for this sample.';
+        }
+        const cimg = new Image();
+        cimg.alt = `${sampleId} synthetic clean ortho view`;
+        cimg.onload = () => { cleanWrap.innerHTML = ''; cleanWrap.appendChild(cimg); };
+        cimg.onerror = () => {
+          cleanWrap.innerHTML = '<div class="empty">No synthetic clean view yet. Run scripts/synthesize_clean_views.py.</div>';
+        };
+        cimg.src = `./deepcad_geometry_views/${sampleId}_geometry_clean.png`;
       });
     }
 

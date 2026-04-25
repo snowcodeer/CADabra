@@ -570,46 +570,53 @@ Return ONLY valid JSON, no markdown fences:
 
 COHESION_SYSTEM_PROMPT = """You are evaluating a CAD reconstruction's GEOMETRY REPRESENTATION:
 six clean orthographic depth + silhouette views of just the reconstructed mesh.
-This image will be the input to a downstream CAD-inference step, so the bar is
-"does it convey the part's intent cleanly?", NOT "is the underlying 3D mesh
-watertight?".
+This PNG is the input to TWO downstream steps:
+  (a) an image-generation pass (gpt-image-2) that synthetically cleans up
+      small surface gaps in the silhouette / sharpens edges WITHOUT modifying
+      the underlying 3D mesh, and
+  (b) a parametric CAD-inference step that reads the cleaned views.
+
+Because the image-gen pass exists, the bar here is "does the underlying 3D
+recon preserve the part's TOPOLOGICAL INTENT (real through-holes, real
+mirror/rotational symmetry, real face boundaries)?". SMALL COSMETIC GAPS in
+the silhouette are FINE and even preferred over aggressive geometric closure
+that risks bridging a real hole. The image-gen pass will fill those.
 
 For each view you have two side-by-side panels:
   - LEFT  = depth-shaded render (red=near, blue=far) showing surface slope.
   - RIGHT = silhouette mask: light pixels where mesh exists, dark where it
             does not. Holes show as dark islands inside the part outline.
 
-Score COHESION (0-100). The four axes that matter:
+Score COHESION (0-100). The axes that matter, in priority order:
 
-1. HOLE INTENT (most important)
+1. HOLE INTENT (most important by far)
    GOOD: every through-hole shows as a clean dark island in BOTH the
-         depth view and the silhouette view, with a circular or polygonal
-         outline that matches across opposing views (e.g. Top and Bottom).
+         depth view and the silhouette view, with an outline that matches
+         across opposing views (e.g. Top and Bottom). A bore visible from
+         one face MUST also exit on the opposing face.
    BAD : a hole visible in one view but bridged in the opposite view; a
          hole reduced to a shallow bowl in the depth view; a silhouette
          that looks like a pillow with no holes when there should be some.
+   This is a REGRESSION even if the rest of the mesh is perfect.
 
 2. SYMMETRIC FEATURES
    GOOD: paired holes/bosses match in size and position across the natural
          symmetry axis (Z-rotational, X- or Y-mirror) of the part.
-   BAD : one of a symmetric pair is missing, smaller, or shifted; an
-         expected mirror axis is broken by an asymmetric blob.
+   BAD : one of a symmetric pair is missing, smaller, or shifted.
 
 3. EDGE QUALITY (silhouette boundary)
    GOOD: silhouette outlines are crisp and axis-aligned; corners are sharp;
          steps between depth bands are clean cliffs in the depth view.
-   BAD : ragged/wavy silhouette outlines; staircase edges along axis-aligned
-         features; depth ramps where there should be a hard step.
+   BAD : ragged/wavy silhouette outlines, staircase edges, smooth depth
+         ramps where there should be a hard step.
 
-4. COMPLETENESS (no spurious geometry)
-   GOOD: silhouette is a single connected outline matching the expected
-         part; depth is continuous across each face.
-   BAD : isolated speckle or blob outside the main silhouette; dark patches
-         INSIDE the silhouette that shouldn't be holes (these are recon gaps,
-         not real holes; report them separately).
+4. SMALL SURFACE GAPS (cosmetic only)
+   Small dark patches inside the silhouette that aren't real holes are
+   acceptable - the downstream image-gen pass will infill them. Mention
+   them in `diagnosis` but DO NOT score them harshly.
 
-Suggest parameter overrides that would close the gaps you identified. The
-adjustable parameters are the same as before:
+Suggest parameter overrides that would IMPROVE the things you scored low on.
+Available knobs (omit a key to leave it unchanged):
 
   RECON_PARAMS:
     - poisson_depths:           list[int] in [7, 12].
@@ -621,39 +628,40 @@ adjustable parameters are the same as before:
     - poisson_bonus, alpha_bonus: float in [0.0, 0.05].
     - boundary_penalty, long_edge_penalty: float in [0.0, 5.0].
     - real_hole_bonus: float in [0.0, 0.10]. Reward per detected real-hole loop.
+                       BUMP THIS if a candidate that bridged a bore is winning.
   HOLE_FILL_PARAMS:
-    - meshy_close:         bool. THIS IS THE PRIMARY LEVER. Default ON for cohesion.
-                           Iteratively closes EVERY non-protected boundary loop after
-                           recon so the only remaining openings are the real
-                           through-holes the part actually has (Meshy/Tripo style).
-                           Capped just below the smallest protected real-hole perimeter
-                           so it physically cannot bridge a CAD bore. Leave ON unless
-                           you see real holes getting filled (in which case lower
-                           circular_protect_perim_frac instead).
-    - meshy_max_iters:     int in [1, 8]. Convergence iterations for meshy_close.
-    - meshy_unprotected_cap_frac: float in [0.5, 3.0]. When NO real holes are detected,
-                                  hole_size = bbox_diag * this. Higher = closes more.
-    - enable_in_noisy:     bool. Optional pre-pass that does the legacy 2-pass fill
-                           before meshy_close. Use this when meshy_close alone leaves
-                           noisy small holes (it sometimes does on Poisson candidates).
-    - pass1_frac:          float in [0.05, 0.6].
+    - enable_in_noisy:     bool. Default ON in cohesion baseline. Conservative
+                           2-pass fill that closes only loops smaller than the
+                           smallest protected real-hole perimeter. Safe.
+    - pass1_frac:          float in [0.05, 0.6]. Pass 1 cap (frac of bbox diag).
     - pass2_frac:          float in [0.3, 1.5].
     - min_loop_length_abs: float in [0.05, 1.0].
-    - protect_real_holes:  bool. Default true. NEVER set false.
-    - circular_protect_perim_frac: float in [0.04, 0.20].
+    - protect_real_holes:  bool. ALWAYS true. NEVER set false.
+    - circular_protect_perim_frac: float in [0.04, 0.20]. LOWER this if a real
+                                   hole is being filled in.
     - circularity_threshold:       float in [0.40, 0.85].
     - planarity_threshold:         float in [0.01, 0.10].
     - absolute_protect_perim_frac: float in [0.10, 0.35].
+    - through_hole_detection: bool. Default true. Raycast-confirmed through-bores
+                              are auto-protected; do not turn off.
+    - through_hole_max_depth_frac: float in [0.2, 0.9]. How deep into the part
+                                   a probe ray may travel and still classify the
+                                   loop as a through-hole. Lower = stricter.
+    - meshy_close:         bool. DEFAULT OFF and YOU SHOULD KEEP IT OFF unless
+                           the part has provably ZERO real through-holes (genus 0)
+                           and the recon shows large fringe gaps. The image-gen
+                           pass handles cosmetic cleanup better than meshy_close.
 
 Hard rules:
-  - WATERTIGHTNESS IS NOT A TARGET, but COHESIVENESS is. The user wants meshes
-    that look like they came out of Meshy/Tripo: closed everywhere EXCEPT at
-    detected real holes. meshy_close is the right default; you generally only
-    turn it off if you see a real hole being bridged in the views.
+  - PRESERVING REAL THROUGH-HOLES IS NON-NEGOTIABLE. A "cohesive but bridged"
+    mesh scores LOWER than a "gappy but topologically faithful" one.
+  - The image-gen pass will clean small cosmetic gaps for you. Do NOT enable
+    meshy_close to chase visual cleanliness; that lever has bridged real holes
+    in past runs.
   - NEVER set HOLE_FILL_PARAMS.protect_real_holes = false. If a real hole is
-    being filled in, LOWER circular_protect_perim_frac instead so it gets
-    classified as protected sooner.
-  - The fewest, safest tweaks per round. Big jumps tend to regress.
+    being filled in, LOWER circular_protect_perim_frac AND/OR LOWER
+    through_hole_max_depth_frac so the protection triggers sooner.
+  - Smallest, safest tweaks per round. Big jumps regress.
 
 Return ONLY valid JSON, no markdown fences:
 {
@@ -1040,33 +1048,37 @@ def cohesion_pass(client: anthropic.Anthropic, manifest: list[dict], log: list[d
     COHESION_RENDER_DIR.mkdir(parents=True, exist_ok=True)
     GEOMETRY_VIEWS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # The cohesion contract is "clean orthographic views with real holes
-    # preserved", which matches the meshy_close intent: close everything that
-    # isn't a detected real hole. Bake that into every sample's starting point
-    # so we always run with a cohesively closed baseline.
+    # New cohesion contract: keep through-holes IN, accept small surface gaps,
+    # let the downstream gpt-image-2 cleanup pass make the orthographic views
+    # look polished. We bake the conservative capped 2-pass fill on (closes
+    # noise loops only, never bridges far across) but DO NOT enable meshy_close
+    # because it still occasionally bridges through-bores even with the
+    # edge-guard, and the image-gen pass handles cosmetic gap cleanup better
+    # than mesh repair does.
     cohesion_baseline_overrides = {
         "RECON_PARAMS": {},
         "SCORE_PARAMS": {},
-        "HOLE_FILL_PARAMS": {"meshy_close": True, "meshy_max_iters": 4},
+        "HOLE_FILL_PARAMS": {
+            "meshy_close": False,
+            "enable_in_noisy": True,
+        },
     }
 
     for entry in successful:
         sid = entry["sample_id"]
         ply_name = f"{sid}.ply"
 
-        # Re-run reconstruction for the baseline with meshy_close on so the
-        # initial render reflects the cohesive-close starting point, not the
-        # leftover STL from a previous tuner pass that may have used a totally
-        # different policy.
-        # Stack: global defaults <- previous per-sample (preserves learned tuning
-        # like recon params that recovered specific holes) <- cohesion baseline
-        # (forces meshy_close on so we always start from a closed mesh).
+        # Re-run reconstruction with the safer cohesion baseline (capped fill,
+        # NO meshy_close) so the initial render matches the actual policy in
+        # effect, not whatever leftover STL is on disk from a previous run.
+        # Stack: global defaults <- previous per-sample (preserves learned tuning)
+        # <- cohesion baseline (turns off meshy_close, turns on capped 2-pass fill).
         previous_per_sample = overrides_log.get(sid, {})
         starting_overrides = merge_overrides(global_overrides, previous_per_sample)
         starting_overrides = merge_overrides(starting_overrides, cohesion_baseline_overrides)
         baseline_result = run_recon(sid, ply_name, starting_overrides)
         if not baseline_result.get("success"):
-            print(f"\n  {sid}: baseline (meshy_close) regen failed: {baseline_result.get('error')}")
+            print(f"\n  {sid}: cohesion baseline regen failed: {baseline_result.get('error')}")
             continue
         update_manifest_in_place(manifest, sid, baseline_result)
         entry = baseline_result
@@ -1260,6 +1272,12 @@ def parse_args() -> argparse.Namespace:
                    help="early-exit threshold for cohesion score (0-100)")
     p.add_argument("--no-sync", action="store_true", help="skip syncing STLs/manifest to frontend")
     p.add_argument("--only", help="comma-separated sample ids to restrict the run to")
+    p.add_argument("--no-synth-clean", action="store_true",
+                   help="skip the gpt-image-2 cleanup step (default is to run it on --only ids if "
+                        "OPENAI_API_KEY is set)")
+    p.add_argument("--synth-quality", default="high",
+                   choices=["low", "medium", "high", "auto", "standard"],
+                   help="gpt-image-2 quality tier for the cleanup step")
     return p.parse_args()
 
 
@@ -1319,6 +1337,26 @@ def main() -> None:
     if args.only:
         target_geometry_ids = {e["sample_id"] for e in working_manifest if e.get("success")}
     render_all_geometry_views(manifest, target_ids=target_geometry_ids)
+
+    # Synthesise the gpt-image-2 cleaned ortho views for any sample we tuned.
+    # Cosmetic gaps in the recon get filled by the image model so the final
+    # captured representation looks clean even when the underlying mesh is
+    # (intentionally) not watertight.
+    if not args.no_synth_clean and target_geometry_ids and os.environ.get("OPENAI_API_KEY"):
+        synth_script = REPO / "scripts" / "synthesize_clean_views.py"
+        synth_cmd = [PYTHON_BIN, str(synth_script),
+                     "--only", ",".join(sorted(target_geometry_ids)),
+                     "--quality", args.synth_quality]
+        if args.no_sync:
+            synth_cmd.append("--no-sync")
+        print(f"\n=== running gpt-image-2 cleanup on {len(target_geometry_ids)} samples ===")
+        rc = subprocess.call(synth_cmd, cwd=str(REPO))
+        if rc != 0:
+            print(f"  WARN: synthesize_clean_views exited with code {rc}")
+    elif not args.no_synth_clean and not target_geometry_ids:
+        print("  (skipping gpt-image-2 cleanup: no --only target ids)")
+    elif not args.no_synth_clean and not os.environ.get("OPENAI_API_KEY"):
+        print("  (skipping gpt-image-2 cleanup: OPENAI_API_KEY not set)")
 
     if not args.no_sync:
         sync_to_frontend()

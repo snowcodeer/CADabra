@@ -108,6 +108,22 @@ HOLE_FILL_PARAMS = {
     'meshy_close': False,
     'meshy_max_iters': 4,
     'meshy_unprotected_cap_frac': 1.5,     # if no real holes detected, cap = bbox_diag * this (effectively unlimited)
+    # Edge-aware safety brake for meshy_close: after each fill iteration, drop any
+    # newly added triangle whose longest edge spans more than this fraction of the
+    # bbox diagonal. This is what stops the "connect dots far across" bridging
+    # pattern even when the model enables meshy_close on a part with no
+    # protected real holes detected. Lower = safer, higher = more aggressive
+    # closure.
+    'meshy_close_max_edge_frac': 0.18,
+    # Topological through-hole detector. For every boundary loop we cast rays
+    # along its best-fit normal axis from the loop centroid, slightly inside the
+    # part. If a ray hits the mesh nearby on either side, the loop is a true
+    # through-bore (or a deep cavity opening to it) and is force-protected
+    # regardless of perimeter / circularity heuristics. This is what catches
+    # the small CAD bores that the geometric heuristics miss.
+    'through_hole_detection': True,
+    'through_hole_max_depth_frac': 0.55,   # ray hit must come back within bbox_diag * this
+    'through_hole_inset_frac': 0.003,      # nudge ray origin this far inside the loop along normal
 }
 
 DECIMATION_PARAMS = {
@@ -732,10 +748,14 @@ def _extract_boundary_loops(mesh: o3d.geometry.TriangleMesh) -> list[list[int]]:
 
 
 def _classify_boundary_loop(loop_pts: np.ndarray, bbox_diag: float) -> dict:
-    """Compute perimeter, planar-fit area, circularity, and planarity residual."""
+    """Compute perimeter, planar-fit area, circularity, planarity residual, and
+    the loop's centroid + best-fit normal so the through-hole detector can reuse
+    them without re-running SVD."""
     n = len(loop_pts)
     if n < 3:
-        return {'perim': 0.0, 'area': 0.0, 'circularity': 0.0, 'planarity': 1.0}
+        return {'perim': 0.0, 'area': 0.0, 'circularity': 0.0, 'planarity': 1.0,
+                'centroid': np.zeros(3), 'normal': np.array([0.0, 0.0, 1.0]),
+                'through_hole': False}
     edges = loop_pts[(np.arange(n) + 1) % n] - loop_pts
     perim = float(np.linalg.norm(edges, axis=1).sum())
     centroid = loop_pts.mean(axis=0)
@@ -743,7 +763,9 @@ def _classify_boundary_loop(loop_pts: np.ndarray, bbox_diag: float) -> dict:
     try:
         _, _, vh = np.linalg.svd(centered, full_matrices=False)
     except np.linalg.LinAlgError:
-        return {'perim': perim, 'area': 0.0, 'circularity': 0.0, 'planarity': 1.0}
+        return {'perim': perim, 'area': 0.0, 'circularity': 0.0, 'planarity': 1.0,
+                'centroid': centroid, 'normal': np.array([0.0, 0.0, 1.0]),
+                'through_hole': False}
     normal = vh[-1]
     basis_u = vh[0]
     basis_v = vh[1]
@@ -752,10 +774,75 @@ def _classify_boundary_loop(loop_pts: np.ndarray, bbox_diag: float) -> dict:
     area = float(0.5 * abs(np.sum(proj_u * np.roll(proj_v, -1) - np.roll(proj_u, -1) * proj_v)))
     planar_residual = float(np.abs(centered @ normal).max() / max(bbox_diag, 1e-9))
     circularity = float(4.0 * np.pi * area / (perim * perim)) if perim > 0 else 0.0
-    return {'perim': perim, 'area': area, 'circularity': circularity, 'planarity': planar_residual}
+    return {'perim': perim, 'area': area, 'circularity': circularity, 'planarity': planar_residual,
+            'centroid': centroid, 'normal': normal, 'through_hole': False}
+
+
+def _detect_through_holes(mesh: o3d.geometry.TriangleMesh, classified: list[dict],
+                          bbox_diag: float) -> None:
+    """Mark any boundary loop that visually corresponds to a through-bore.
+
+    For each loop we shoot two rays from a point slightly inside the part along
+    the loop's best-fit normal axis (i.e. into the part). If a ray hits the
+    mesh again within bbox_diag * through_hole_max_depth_frac, the loop opens
+    onto an internal cavity / through-bore. Marks `through_hole=True` in place.
+
+    This is the safety net that catches the small/oblong CAD bores the
+    perimeter+circularity heuristic misses (so meshy_close / aggressive_fill
+    can't bridge them later).
+    """
+    if not classified or not HOLE_FILL_PARAMS.get('through_hole_detection', True):
+        return
+    if len(mesh.triangles) == 0:
+        return
+    try:
+        t_mesh = o3d.t.geometry.TriangleMesh.from_legacy(mesh)
+        scene = o3d.t.geometry.RaycastingScene()
+        scene.add_triangles(t_mesh)
+    except Exception:
+        return
+
+    inset = float(HOLE_FILL_PARAMS.get('through_hole_inset_frac', 0.003)) * bbox_diag
+    max_depth = float(HOLE_FILL_PARAMS.get('through_hole_max_depth_frac', 0.55)) * bbox_diag
+    eps = 1e-5 * max(bbox_diag, 1e-6)
+
+    rays = []
+    for c in classified:
+        n = c.get('normal')
+        cen = c.get('centroid')
+        if n is None or cen is None or float(np.linalg.norm(n)) < 1e-9:
+            rays.extend([[0, 0, 0, 0, 0, 1.0], [0, 0, 0, 0, 0, -1.0]])
+            continue
+        n_unit = n / (np.linalg.norm(n) + 1e-12)
+        # Origin nudged BOTH ways along the normal so we can see whether either
+        # side of the loop has more mesh further along (which is the topological
+        # signature of a tunnel / cavity vs. a flat-face loop).
+        o_pos = (cen + n_unit * (eps + inset)).astype(np.float32)
+        d_pos = n_unit.astype(np.float32)
+        o_neg = (cen - n_unit * (eps + inset)).astype(np.float32)
+        d_neg = (-n_unit).astype(np.float32)
+        rays.append([*o_pos, *d_pos])
+        rays.append([*o_neg, *d_neg])
+    rays_arr = np.asarray(rays, dtype=np.float32)
+    try:
+        ans = scene.cast_rays(o3d.core.Tensor(rays_arr))
+        t_hit = ans["t_hit"].numpy()
+    except Exception:
+        return
+
+    for i, c in enumerate(classified):
+        t_pos = float(t_hit[2 * i])
+        t_neg = float(t_hit[2 * i + 1])
+        # A through-hole has mesh on the opposite side reachable within
+        # max_depth on EITHER probe direction (we don't require both because
+        # blind cavities still count as real openings).
+        if (np.isfinite(t_pos) and t_pos < max_depth) or (np.isfinite(t_neg) and t_neg < max_depth):
+            c['through_hole'] = True
 
 
 def _is_real_hole(c: dict, bbox_diag: float) -> bool:
+    if c.get('through_hole'):
+        return True
     perim = c['perim']
     if perim <= 0:
         return False
@@ -778,18 +865,23 @@ def _smallest_protected_perim(mesh: o3d.geometry.TriangleMesh, bbox_diag: float)
     smallest_protected_perim is +inf if no loops are protected. When the
     protect_real_holes flag is off, we still classify (so callers like
     _mesh_score can use n_real) but report inf so the hole-fill cap is unbounded.
+
+    Each loop is first classified geometrically (perim/circularity/planarity);
+    we then run the topological through-hole detector to mark any loop that
+    opens onto an internal cavity even if the geometric heuristics missed it.
     """
     loops = _extract_boundary_loops(mesh)
     if not loops:
         return float('inf'), 0, []
     verts = np.asarray(mesh.vertices)
     classified: list[dict] = []
+    for loop in loops:
+        classified.append(_classify_boundary_loop(verts[loop], bbox_diag))
+    _detect_through_holes(mesh, classified, bbox_diag)
     smallest = float('inf')
     protected = 0
-    for loop in loops:
-        c = _classify_boundary_loop(verts[loop], bbox_diag)
+    for c in classified:
         c['protected'] = _is_real_hole(c, bbox_diag)
-        classified.append(c)
         if c['protected']:
             protected += 1
             if c['perim'] < smallest:
@@ -864,17 +956,80 @@ def aggressive_fill_holes(mesh: o3d.geometry.TriangleMesh) -> tuple[o3d.geometry
     return filled, stats
 
 
+def _drop_long_fill_triangles(before: o3d.geometry.TriangleMesh,
+                              after: o3d.geometry.TriangleMesh,
+                              max_edge: float) -> tuple[o3d.geometry.TriangleMesh, int]:
+    """Strip any triangles in `after` that did not exist in `before` AND whose
+    longest edge is longer than `max_edge`. Returns the filtered mesh and the
+    number of triangles dropped.
+
+    This is the safety brake against fill_holes "connecting dots far across".
+    A triangle is considered "newly added" if any of its three vertex indices
+    is >= len(before.vertices) (Open3D appends new fill vertices at the end)
+    OR if the (sorted) vertex triple isn't in `before`'s triangle set.
+    """
+    if max_edge <= 0:
+        return after, 0
+    n_old_v = len(before.vertices)
+    after_tris = np.asarray(after.triangles)
+    after_verts = np.asarray(after.vertices)
+    if len(after_tris) == 0:
+        return after, 0
+
+    before_tri_keys: set[tuple[int, int, int]] = set()
+    if len(before.triangles) > 0:
+        before_arr = np.sort(np.asarray(before.triangles), axis=1)
+        for row in before_arr:
+            before_tri_keys.add((int(row[0]), int(row[1]), int(row[2])))
+
+    a, b, c = after_tris[:, 0], after_tris[:, 1], after_tris[:, 2]
+    e0 = np.linalg.norm(after_verts[a] - after_verts[b], axis=1)
+    e1 = np.linalg.norm(after_verts[b] - after_verts[c], axis=1)
+    e2 = np.linalg.norm(after_verts[c] - after_verts[a], axis=1)
+    longest = np.maximum.reduce([e0, e1, e2])
+
+    sorted_tris = np.sort(after_tris, axis=1)
+    keep = np.ones(len(after_tris), dtype=bool)
+    dropped = 0
+    for i in range(len(after_tris)):
+        if longest[i] <= max_edge:
+            continue
+        # Long edge: only drop if this triangle wasn't already in `before` (so
+        # we never delete original mesh triangles, only newly synthesized fills).
+        is_new = (
+            after_tris[i, 0] >= n_old_v
+            or after_tris[i, 1] >= n_old_v
+            or after_tris[i, 2] >= n_old_v
+            or (int(sorted_tris[i, 0]), int(sorted_tris[i, 1]), int(sorted_tris[i, 2])) not in before_tri_keys
+        )
+        if is_new:
+            keep[i] = False
+            dropped += 1
+    if not dropped:
+        return after, 0
+
+    filtered = o3d.geometry.TriangleMesh()
+    filtered.vertices = after.vertices
+    filtered.triangles = o3d.utility.Vector3iVector(after_tris[keep])
+    filtered.remove_unreferenced_vertices()
+    return filtered, dropped
+
+
 def meshy_close_mesh(mesh: o3d.geometry.TriangleMesh) -> tuple[o3d.geometry.TriangleMesh, dict]:
-    """Meshy/Tripo-style cohesive close.
+    """Meshy/Tripo-style cohesive close (edge-guarded).
 
-    Detects which boundary loops are "real holes" (large or circular+planar) and
-    treats them as protected. Then iteratively closes EVERY other boundary loop
-    by repeatedly invoking the tensor fill_holes API with hole_size capped just
-    below the smallest protected perimeter. Iterates until the boundary count
-    converges or `meshy_max_iters` is hit.
+    Detects which boundary loops are "real holes" (large or circular+planar OR
+    raycast-confirmed through-bores) and treats them as protected. Then
+    iteratively closes other boundary loops by invoking the tensor fill_holes
+    API with hole_size capped just below the smallest protected perimeter,
+    AND drops any newly synthesized triangle whose longest edge exceeds
+    `meshy_close_max_edge_frac * bbox_diag`. The edge guard is the safety net
+    that stops fill_holes from "connecting dots far across" intentional gaps.
 
-    Result: a clean cohesive mesh whose only remaining openings are the real
-    through-holes the part actually has. Won't ever bridge a protected hole.
+    Result: a more cohesive mesh whose only remaining openings are the real
+    through-holes plus any genuinely large gaps. Disabled by default in the
+    cohesion baseline now; downstream image-gen handles cosmetic gap cleanup
+    on the rendered orthographic views instead of forcing geometric closure.
     """
     diag = _bbox_diag(mesh)
     boundary_before = _boundary_edge_count(mesh)
@@ -889,6 +1044,7 @@ def meshy_close_mesh(mesh: o3d.geometry.TriangleMesh) -> tuple[o3d.geometry.Tria
         stats['meshy_close_protected_loops'] = 0
         stats['meshy_close_cap'] = 0.0
         stats['meshy_close_protected_min_perim'] = None
+        stats['meshy_close_long_tris_dropped'] = 0
         return mesh, stats
 
     smallest_prot, prot_count, _ = _smallest_protected_perim(mesh, diag)
@@ -901,22 +1057,23 @@ def meshy_close_mesh(mesh: o3d.geometry.TriangleMesh) -> tuple[o3d.geometry.Tria
     stats['meshy_close_protected_min_perim'] = round(smallest_prot, 6) if smallest_prot != float('inf') else None
     stats['meshy_close_cap'] = round(cap, 6)
 
+    max_edge = float(HOLE_FILL_PARAMS.get('meshy_close_max_edge_frac', 0.18)) * diag
+
     max_iters = max(1, int(HOLE_FILL_PARAMS.get('meshy_max_iters', 4)))
     current = mesh
     last_boundary = boundary_before
     iters_done = 0
+    total_dropped = 0
     for _ in range(max_iters):
         filled = _fill_with_tensor(current, cap)
         if filled is None:
             break
+        filled, dropped = _drop_long_fill_triangles(current, filled, max_edge)
+        total_dropped += dropped
         filled = _cleanup_mesh(filled)
         new_boundary = _boundary_edge_count(filled)
         iters_done += 1
-        # Accept the iteration whether or not it converged; we want the most
-        # closed mesh we can get.
         current = filled
-        # Re-check protect cap on the new mesh: filling can change the boundary
-        # set so a previously-protected loop may now be the only remaining one.
         if new_boundary > 0:
             smallest_prot, prot_count, _ = _smallest_protected_perim(current, diag)
             if smallest_prot != float('inf'):
@@ -928,8 +1085,10 @@ def meshy_close_mesh(mesh: o3d.geometry.TriangleMesh) -> tuple[o3d.geometry.Tria
 
     stats['meshy_close_iterations'] = iters_done
     stats['meshy_close_boundary_after'] = last_boundary
-    stats['meshy_close_method'] = 'open3d_tensor_iterative'
+    stats['meshy_close_method'] = 'open3d_tensor_iterative_edgeguard'
     stats['meshy_close_final_protected_loops'] = prot_count
+    stats['meshy_close_long_tris_dropped'] = total_dropped
+    stats['meshy_close_max_edge'] = round(max_edge, 6)
     return current, stats
 
 

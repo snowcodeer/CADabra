@@ -1,335 +1,98 @@
 [
   {
-    "sample_id": "deepcadimg_000009",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_000009_recon_noisy.stl",
-    "strategy": "poisson_d10",
-    "triangles": 12653,
-    "vertices": 6729,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 869,
-    "chamfer": 0.03812,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 12651,
-        "long_edge_density": 0.0,
-        "chamfer": 0.037966,
-        "score": -0.069836
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 12652,
-        "long_edge_density": 0.0,
-        "chamfer": 0.038327,
-        "score": -0.070243
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 12653,
-        "long_edge_density": 0.0,
-        "chamfer": 0.038169,
-        "score": -0.069861
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 12652,
-        "long_edge_density": 0.0,
-        "chamfer": 0.037884,
-        "score": -0.069703
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 2159,
-        "long_edge_density": 0.0011,
-        "chamfer": 0.193197,
-        "score": -0.371604
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 7982,
-        "long_edge_density": 0.0859,
-        "chamfer": 0.042277,
-        "score": -0.316899
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 6668,
-        "long_edge_density": 0.0608,
-        "chamfer": 0.056427,
-        "score": -0.175836
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 5372,
-        "long_edge_density": 0.0337,
-        "chamfer": 0.044368,
-        "score": -0.096563
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7222,
-        "long_edge_density": 0.0,
-        "chamfer": 0.031152,
-        "score": -0.101795
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 6867,
-        "long_edge_density": 0.0009,
-        "chamfer": 0.0322,
-        "score": -0.102136
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 3578,
-        "long_edge_density": 0.002,
-        "chamfer": 0.108314,
-        "score": -0.163038
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 3750,
-        "long_edge_density": 0.0074,
-        "chamfer": 0.094456,
-        "score": -0.168574
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_000028",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_000028_recon_noisy.stl",
-    "strategy": "poisson_d8+holefill",
-    "triangles": 15451,
-    "vertices": 7710,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0042,
-    "boundary_edges": 9,
-    "chamfer": 0.059217,
-    "hole_fill": {
-      "hole_fill_diag": 2.503215,
-      "hole_fill_boundary_before": 245,
-      "hole_fill_pass1_size": 0.625804,
-      "hole_fill_pass2_size": 1.752251,
-      "hole_fill_boundary_after_pass1": 116,
-      "hole_fill_method": "open3d_tensor_2pass",
-      "hole_fill_boundary_after": 9
-    },
-    "candidates_evaluated": 11,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 15237,
-        "long_edge_density": 0.0,
-        "chamfer": 0.046444,
-        "score": -0.068997
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 15234,
-        "long_edge_density": 0.0,
-        "chamfer": 0.046569,
-        "score": -0.069303
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 15233,
-        "long_edge_density": 0.0,
-        "chamfer": 0.046774,
-        "score": -0.070002
-      },
-      {
-        "strategy": "alpha_0.020",
-        "triangles": 619,
-        "long_edge_density": 0.0,
-        "chamfer": 0.379918,
-        "score": -0.715495
-      },
-      {
-        "strategy": "alpha_0.035",
-        "triangles": 5987,
-        "long_edge_density": 0.0705,
-        "chamfer": 0.058717,
-        "score": -0.501386
-      },
-      {
-        "strategy": "alpha_0.050",
-        "triangles": 6967,
-        "long_edge_density": 0.0352,
-        "chamfer": 0.044666,
-        "score": -0.12094
-      },
-      {
-        "strategy": "alpha_0.080",
-        "triangles": 5424,
-        "long_edge_density": 0.0383,
-        "chamfer": 0.049936,
-        "score": -0.113319
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 6723,
-        "long_edge_density": 0.0,
-        "chamfer": 0.044993,
-        "score": -0.129375
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 7453,
-        "long_edge_density": 0.0039,
-        "chamfer": 0.035177,
-        "score": -0.13629
-      },
-      {
-        "strategy": "bp_2.2",
-        "triangles": 6738,
-        "long_edge_density": 0.0096,
-        "chamfer": 0.045548,
-        "score": -0.138566
-      },
-      {
-        "strategy": "bp_3.0",
-        "triangles": 6337,
-        "long_edge_density": 0.0129,
-        "chamfer": 0.048197,
-        "score": -0.145347
-      }
-    ],
-    "applied_overrides": {
-      "RECON_PARAMS": {
-        "poisson_depths": [
-          8,
-          9,
-          10
-        ],
-        "poisson_density_quantile": 0.01,
-        "envelope_radius_factor": 3.0,
-        "alpha_factors": [
-          0.02,
-          0.035,
-          0.05,
-          0.08
-        ],
-        "ball_pivot_radius_factors": [
-          1.0,
-          1.5,
-          2.2,
-          3.0
-        ]
-      },
-      "SCORE_PARAMS": {
-        "boundary_penalty": 1.5,
-        "long_edge_penalty": 2.0,
-        "poisson_bonus": 0.015,
-        "alpha_bonus": 0.01
-      },
-      "HOLE_FILL_PARAMS": {
-        "enable_in_noisy": true,
-        "pass1_frac": 0.25,
-        "pass2_frac": 0.7,
-        "min_loop_length_abs": 0.15
-      }
-    }
-  },
-  {
     "sample_id": "deepcadimg_000035",
     "success": true,
     "recon_noisy_stl": "deepcadimg_000035_recon_noisy.stl",
-    "strategy": "poisson_d11+holefill+meshyclose",
-    "triangles": 24412,
+    "strategy": "poisson_d11+holefill",
+    "triangles": 24001,
     "vertices": 12176,
     "watertight": false,
     "edge_manifold": true,
-    "long_edge_density": 0.0061,
-    "boundary_edges": 4,
-    "chamfer": 0.073693,
+    "long_edge_density": 0.0,
+    "boundary_edges": 423,
+    "chamfer": 0.050763,
     "hole_fill": {
       "hole_fill_diag": 2.794329,
       "hole_fill_boundary_before": 447,
-      "hole_fill_protected_loops": 7,
-      "hole_fill_protected_min_perim": 0.342856,
-      "hole_fill_pass1_size": 0.30857,
-      "hole_fill_pass2_size": 0.30857,
-      "hole_fill_boundary_after_pass1": 410,
+      "hole_fill_protected_loops": 11,
+      "hole_fill_protected_min_perim": 0.087,
+      "hole_fill_pass1_size": 0.0783,
+      "hole_fill_pass2_size": 0.0783,
+      "hole_fill_boundary_after_pass1": 423,
       "hole_fill_method": "open3d_tensor_2pass",
-      "hole_fill_boundary_after": 410
+      "hole_fill_boundary_after": 423
     },
     "candidates_evaluated": 10,
     "candidate_summary": [
       {
         "strategy": "poisson_d9",
-        "triangles": 23986,
+        "triangles": 23987,
         "long_edge_density": 0.0,
-        "chamfer": 0.050923,
-        "score": 0.354365
+        "chamfer": 0.050702,
+        "score": 0.409366
       },
       {
         "strategy": "poisson_d10",
         "triangles": 23985,
         "long_edge_density": 0.0,
-        "chamfer": 0.05062,
-        "score": 0.354709
+        "chamfer": 0.050929,
+        "score": 0.408647
       },
       {
         "strategy": "poisson_d11",
-        "triangles": 23989,
+        "triangles": 23987,
         "long_edge_density": 0.0,
-        "chamfer": 0.050998,
-        "score": 0.354757
+        "chamfer": 0.050023,
+        "score": 0.409577
       },
       {
         "strategy": "alpha_0.030",
         "triangles": 1867,
         "long_edge_density": 0.0017,
-        "chamfer": 0.22962,
-        "score": -0.006378
+        "chamfer": 0.230009,
+        "score": -0.074551
       },
       {
         "strategy": "alpha_0.050",
         "triangles": 7169,
         "long_edge_density": 0.1003,
-        "chamfer": 0.064516,
-        "score": 0.083338
+        "chamfer": 0.064357,
+        "score": 0.044036
       },
       {
         "strategy": "alpha_0.075",
         "triangles": 5850,
         "long_edge_density": 0.0508,
-        "chamfer": 0.066915,
-        "score": -0.152551
+        "chamfer": 0.0669,
+        "score": -0.093035
       },
       {
         "strategy": "bp_1.0",
         "triangles": 7317,
         "long_edge_density": 0.0,
-        "chamfer": 0.041747,
-        "score": 0.298331
+        "chamfer": 0.04224,
+        "score": 0.264758
       },
       {
         "strategy": "bp_1.5",
         "triangles": 7070,
         "long_edge_density": 0.0023,
-        "chamfer": 0.043704,
-        "score": 0.311778
+        "chamfer": 0.044,
+        "score": 0.282833
       },
       {
         "strategy": "bp_2.2",
         "triangles": 6316,
         "long_edge_density": 0.0119,
-        "chamfer": 0.052624,
-        "score": 0.299018
+        "chamfer": 0.053483,
+        "score": 0.273671
       },
       {
         "strategy": "bp_3.0",
         "triangles": 5434,
         "long_edge_density": 0.0329,
-        "chamfer": 0.078684,
-        "score": 0.264273
+        "chamfer": 0.078554,
+        "score": 0.246341
       }
     ],
     "applied_overrides": {
@@ -339,7 +102,7 @@
           10,
           11
         ],
-        "poisson_density_quantile": 0.015,
+        "poisson_density_quantile": 0.012,
         "envelope_radius_factor": 2.2,
         "alpha_factors": [
           0.03,
@@ -356,881 +119,129 @@
       "SCORE_PARAMS": {
         "poisson_bonus": 0.03,
         "alpha_bonus": 0.01,
-        "boundary_penalty": 1.2,
+        "boundary_penalty": 1.5,
         "long_edge_penalty": 1.8,
         "real_hole_bonus": 0.06
       },
       "HOLE_FILL_PARAMS": {
         "enable_in_noisy": true,
-        "pass1_frac": 0.15,
-        "pass2_frac": 0.5,
+        "pass1_frac": 0.18,
+        "pass2_frac": 0.55,
         "min_loop_length_abs": 0.15,
         "protect_real_holes": true,
         "circular_protect_perim_frac": 0.06,
         "circularity_threshold": 0.6,
         "absolute_protect_perim_frac": 0.25,
-        "meshy_close": true,
-        "meshy_max_iters": 4
+        "meshy_close": false,
+        "meshy_max_iters": 4,
+        "through_hole_max_depth_frac": 0.5
       }
     },
     "cohesion": {
-      "score": 60,
-      "diagnosis": "Top view clearly shows the counter-bore recess and Bottom view still only shows a shallow bowl rather than a punched-through hole \u2014 the central bore is being bridged by hole-fill. Silhouettes (top/bottom) are fully closed where one should see a dark island for the through-hole. Side views remain slightly ragged at the rim with small notches.",
+      "score": 82,
+      "diagnosis": "Through-bore is cleanly preserved in both Top and Bottom silhouettes with matching circular outline - topology faithful. Flange and upper cylinder silhouettes still show minor wavy fringes on the side views, and the bore edge has a small staircase on Top/Bottom. No real holes bridged; cosmetic speckle on top annulus is minor and will be cleaned by image-gen.",
       "symmetry": "Z-rotational",
-      "hole_count": 0,
-      "expected_improvement": "Lower circular protection threshold should let the central bore be detected as a real hole and stay open through the bottom, restoring the through-hole.",
-      "geometry_view": "geometry_views/deepcadimg_000035_geometry.png"
-    },
-    "meshy_close": {
-      "meshy_close_diag": 2.794329,
-      "meshy_close_boundary_before": 410,
-      "meshy_close_protected_loops": 5,
-      "meshy_close_protected_min_perim": 1.575389,
-      "meshy_close_cap": 1.41785,
-      "meshy_close_iterations": 3,
-      "meshy_close_boundary_after": 4,
-      "meshy_close_method": "open3d_tensor_iterative",
-      "meshy_close_final_protected_loops": 0
-    }
-  },
-  {
-    "sample_id": "deepcadimg_000039",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_000039_recon_noisy.stl",
-    "strategy": "poisson_d9",
-    "triangles": 9154,
-    "vertices": 4644,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 140,
-    "chamfer": 0.029817,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 9154,
-        "long_edge_density": 0.0,
-        "chamfer": 0.029797,
-        "score": -0.026383
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 9154,
-        "long_edge_density": 0.0,
-        "chamfer": 0.029903,
-        "score": -0.026124
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 9154,
-        "long_edge_density": 0.0,
-        "chamfer": 0.030117,
-        "score": -0.026291
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 9154,
-        "long_edge_density": 0.0,
-        "chamfer": 0.029942,
-        "score": -0.026312
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 2796,
-        "long_edge_density": 0.0024,
-        "chamfer": 0.120157,
-        "score": -0.295706
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 8095,
-        "long_edge_density": 0.0674,
-        "chamfer": 0.037001,
-        "score": -0.29894
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 7280,
-        "long_edge_density": 0.0807,
-        "chamfer": 0.045497,
-        "score": -0.232498
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 5268,
-        "long_edge_density": 0.0875,
-        "chamfer": 0.060033,
-        "score": -0.203247
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7873,
-        "long_edge_density": 0.0,
-        "chamfer": 0.027849,
-        "score": -0.055686
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 7871,
-        "long_edge_density": 0.0013,
-        "chamfer": 0.028522,
-        "score": -0.048896
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 7665,
-        "long_edge_density": 0.0064,
-        "chamfer": 0.029875,
-        "score": -0.056586
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 7155,
-        "long_edge_density": 0.0196,
-        "chamfer": 0.031378,
-        "score": -0.074419
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_000042",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_000042_recon_noisy.stl",
-    "strategy": "poisson_d8",
-    "triangles": 10982,
-    "vertices": 5580,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 192,
-    "chamfer": 0.031266,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 10982,
-        "long_edge_density": 0.0,
-        "chamfer": 0.031215,
-        "score": -0.030644
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 10982,
-        "long_edge_density": 0.0,
-        "chamfer": 0.03107,
-        "score": -0.030729
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 10982,
-        "long_edge_density": 0.0,
-        "chamfer": 0.031125,
-        "score": -0.030675
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 10982,
-        "long_edge_density": 0.0,
-        "chamfer": 0.031182,
-        "score": -0.030493
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 1839,
-        "long_edge_density": 0.0,
-        "chamfer": 0.171936,
-        "score": -0.337755
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 7917,
-        "long_edge_density": 0.0633,
-        "chamfer": 0.037355,
-        "score": -0.31243
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 7548,
-        "long_edge_density": 0.0591,
-        "chamfer": 0.042114,
-        "score": -0.204877
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 5224,
-        "long_edge_density": 0.0245,
-        "chamfer": 0.036476,
-        "score": -0.074872
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7886,
-        "long_edge_density": 0.0,
-        "chamfer": 0.028652,
-        "score": -0.051967
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 7927,
-        "long_edge_density": 0.003,
-        "chamfer": 0.029378,
-        "score": -0.053179
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 7807,
-        "long_edge_density": 0.0052,
-        "chamfer": 0.029709,
-        "score": -0.057088
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 7439,
-        "long_edge_density": 0.0094,
-        "chamfer": 0.031536,
-        "score": -0.061798
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_000043",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_000043_recon_noisy.stl",
-    "strategy": "poisson_d8",
-    "triangles": 25123,
-    "vertices": 12810,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 543,
-    "chamfer": 0.058489,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 25123,
-        "long_edge_density": 0.0,
-        "chamfer": 0.05875,
-        "score": -0.074354
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 25119,
-        "long_edge_density": 0.0,
-        "chamfer": 0.058622,
-        "score": -0.074688
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 25123,
-        "long_edge_density": 0.0,
-        "chamfer": 0.058605,
-        "score": -0.07488
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 25119,
-        "long_edge_density": 0.0,
-        "chamfer": 0.058359,
-        "score": -0.074439
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 1442,
-        "long_edge_density": 0.0,
-        "chamfer": 0.611335,
-        "score": -0.662603
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 6239,
-        "long_edge_density": 0.076,
-        "chamfer": 0.076238,
-        "score": -0.283402
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 7298,
-        "long_edge_density": 0.0568,
-        "chamfer": 0.066877,
-        "score": -0.215492
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 6569,
-        "long_edge_density": 0.0552,
-        "chamfer": 0.077392,
-        "score": -0.196451
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 6583,
-        "long_edge_density": 0.0,
-        "chamfer": 0.048866,
-        "score": -0.183231
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 4264,
-        "long_edge_density": 0.0026,
-        "chamfer": 0.098297,
-        "score": -0.2643
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 3742,
-        "long_edge_density": 0.0067,
-        "chamfer": 0.105707,
-        "score": -0.271049
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 4448,
-        "long_edge_density": 0.0438,
-        "chamfer": 0.074339,
-        "score": -0.288338
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_000060",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_000060_recon_noisy.stl",
-    "strategy": "alpha_0.050+holefill",
-    "triangles": 7162,
-    "vertices": 3573,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0219,
-    "boundary_edges": 84,
-    "chamfer": 0.041765,
-    "hole_fill": {
-      "hole_fill_diag": 2.625447,
-      "hole_fill_boundary_before": 91,
-      "hole_fill_protected_loops": 5,
-      "hole_fill_protected_min_perim": 0.537509,
-      "hole_fill_pass1_size": 0.483758,
-      "hole_fill_pass2_size": 0.483758,
-      "hole_fill_boundary_after_pass1": 84,
-      "hole_fill_method": "open3d_tensor_2pass",
-      "hole_fill_boundary_after": 84
-    },
-    "candidates_evaluated": 10,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d9",
-        "triangles": 14972,
-        "long_edge_density": 0.0,
-        "chamfer": 0.038982,
-        "score": 0.048736
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 14970,
-        "long_edge_density": 0.0,
-        "chamfer": 0.038994,
-        "score": 0.049566
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 14973,
-        "long_edge_density": 0.0,
-        "chamfer": 0.038977,
-        "score": 0.050013
-      },
-      {
-        "strategy": "alpha_0.030",
-        "triangles": 4831,
-        "long_edge_density": 0.0395,
-        "chamfer": 0.081904,
-        "score": -0.388523
-      },
-      {
-        "strategy": "alpha_0.050",
-        "triangles": 7157,
-        "long_edge_density": 0.0219,
-        "chamfer": 0.041761,
-        "score": 0.188017
-      },
-      {
-        "strategy": "alpha_0.075",
-        "triangles": 6132,
-        "long_edge_density": 0.0199,
-        "chamfer": 0.042461,
-        "score": -0.066378
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 3902,
-        "long_edge_density": 0.0,
-        "chamfer": 0.098005,
-        "score": -0.181292
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 6986,
-        "long_edge_density": 0.001,
-        "chamfer": 0.034643,
-        "score": -0.084257
-      },
-      {
-        "strategy": "bp_2.2",
-        "triangles": 6383,
-        "long_edge_density": 0.0111,
-        "chamfer": 0.038375,
-        "score": 0.001948
-      },
-      {
-        "strategy": "bp_3.0",
-        "triangles": 3765,
-        "long_edge_density": 0.0104,
-        "chamfer": 0.0973,
-        "score": -0.143329
-      }
-    ],
-    "applied_overrides": {
-      "RECON_PARAMS": {
-        "poisson_depths": [
-          9,
-          10,
-          11
-        ],
-        "poisson_density_quantile": 0.018,
-        "envelope_radius_factor": 1.9,
-        "alpha_factors": [
-          0.03,
-          0.05,
-          0.075
-        ],
-        "ball_pivot_radius_factors": [
-          1.0,
-          1.5,
-          2.2,
-          3.0
-        ]
-      },
-      "SCORE_PARAMS": {
-        "poisson_bonus": 0.03,
-        "alpha_bonus": 0.01,
-        "boundary_penalty": 2.8,
-        "long_edge_penalty": 1.8,
-        "real_hole_bonus": 0.06
-      },
-      "HOLE_FILL_PARAMS": {
-        "enable_in_noisy": true,
-        "pass1_frac": 0.2,
-        "pass2_frac": 0.6,
-        "min_loop_length_abs": 0.15,
-        "protect_real_holes": true,
-        "circular_protect_perim_frac": 0.07,
-        "circularity_threshold": 0.6,
-        "absolute_protect_perim_frac": 0.18
-      }
-    },
-    "cohesion": {
-      "score": 72,
-      "diagnosis": "Central through-hole is clean and consistent between Top and Bottom silhouettes - primary intent preserved. Persistent spurious corner blobs (bottom-left of Top, top-left and bottom-right of Bottom) remain, breaking the rectangular plate outline; these are outlier-driven reconstruction artifacts. Side views thin and consistent.",
-      "symmetry": "Z-mirror (rectangular plate with central hole)",
       "hole_count": 1,
-      "expected_improvement": "Tighter envelope and higher density quantile should crop outlier corner blobs, yielding a cleaner rectangular silhouette.",
-      "geometry_view": "geometry_views/deepcadimg_000060_geometry.png"
-    }
-  },
-  {
-    "sample_id": "deepcadimg_069872",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_069872_recon_noisy.stl",
-    "strategy": "poisson_d11",
-    "triangles": 21994,
-    "vertices": 11182,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 398,
-    "chamfer": 0.03017,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 21778,
-        "long_edge_density": 0.0,
-        "chamfer": 0.030146,
-        "score": -0.040813
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 22003,
-        "long_edge_density": 0.0,
-        "chamfer": 0.029859,
-        "score": -0.040877
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 21996,
-        "long_edge_density": 0.0,
-        "chamfer": 0.030156,
-        "score": -0.041025
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 21994,
-        "long_edge_density": 0.0,
-        "chamfer": 0.030133,
-        "score": -0.040831
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 7511,
-        "long_edge_density": 0.0361,
-        "chamfer": 0.029276,
-        "score": -0.132404
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 5946,
-        "long_edge_density": 0.0309,
-        "chamfer": 0.030689,
-        "score": -0.080235
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 4698,
-        "long_edge_density": 0.0329,
-        "chamfer": 0.032582,
-        "score": -0.077067
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 3850,
-        "long_edge_density": 0.0532,
-        "chamfer": 0.034788,
-        "score": -0.10862
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 4699,
-        "long_edge_density": 0.0,
-        "chamfer": 0.034327,
-        "score": -0.071021
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 4560,
-        "long_edge_density": 0.0006,
-        "chamfer": 0.034947,
-        "score": -0.065316
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 4405,
-        "long_edge_density": 0.0018,
-        "chamfer": 0.035014,
-        "score": -0.066483
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 4099,
-        "long_edge_density": 0.0032,
-        "chamfer": 0.035734,
-        "score": -0.068113
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_037407",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_037407_recon_noisy.stl",
-    "strategy": "poisson_d9",
-    "triangles": 27046,
-    "vertices": 13966,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 1032,
-    "chamfer": 0.060808,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 27041,
-        "long_edge_density": 0.0,
-        "chamfer": 0.061252,
-        "score": -0.089265
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 27046,
-        "long_edge_density": 0.0,
-        "chamfer": 0.061185,
-        "score": -0.088917
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 27030,
-        "long_edge_density": 0.0,
-        "chamfer": 0.060955,
-        "score": -0.089145
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 27035,
-        "long_edge_density": 0.0,
-        "chamfer": 0.060473,
-        "score": -0.088739
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 878,
-        "long_edge_density": 0.0,
-        "chamfer": 0.486423,
-        "score": -0.596633
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 5035,
-        "long_edge_density": 0.0606,
-        "chamfer": 0.100511,
-        "score": -0.300282
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 6995,
-        "long_edge_density": 0.1123,
-        "chamfer": 0.079915,
-        "score": -0.348281
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 6575,
-        "long_edge_density": 0.079,
-        "chamfer": 0.08827,
-        "score": -0.248682
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 6216,
-        "long_edge_density": 0.0,
-        "chamfer": 0.051728,
-        "score": -0.217437
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 6144,
-        "long_edge_density": 0.0055,
-        "chamfer": 0.052682,
-        "score": -0.222788
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 3980,
-        "long_edge_density": 0.0071,
-        "chamfer": 0.124951,
-        "score": -0.296648
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 4533,
-        "long_edge_density": 0.0263,
-        "chamfer": 0.100425,
-        "score": -0.301228
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_061490",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_061490_recon_noisy.stl",
-    "strategy": "poisson_d9",
-    "triangles": 16994,
-    "vertices": 8846,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 778,
-    "chamfer": 0.044524,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 16994,
-        "long_edge_density": 0.0,
-        "chamfer": 0.044904,
-        "score": -0.067123
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 16994,
-        "long_edge_density": 0.0,
-        "chamfer": 0.044468,
-        "score": -0.066964
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 16996,
-        "long_edge_density": 0.0,
-        "chamfer": 0.04432,
-        "score": -0.067068
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 16996,
-        "long_edge_density": 0.0,
-        "chamfer": 0.044521,
-        "score": -0.066966
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 793,
-        "long_edge_density": 0.0,
-        "chamfer": 0.567668,
-        "score": -0.69617
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 2748,
-        "long_edge_density": 0.0772,
-        "chamfer": 0.218799,
-        "score": -0.487793
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 7720,
-        "long_edge_density": 0.0818,
-        "chamfer": 0.05638,
-        "score": -0.299678
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 5796,
-        "long_edge_density": 0.0286,
-        "chamfer": 0.053628,
-        "score": -0.100031
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7335,
-        "long_edge_density": 0.0,
-        "chamfer": 0.037672,
-        "score": -0.097237
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 7166,
-        "long_edge_density": 0.0014,
-        "chamfer": 0.03861,
-        "score": -0.094716
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 6898,
-        "long_edge_density": 0.0046,
-        "chamfer": 0.040373,
-        "score": -0.102058
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 6224,
-        "long_edge_density": 0.0214,
-        "chamfer": 0.044226,
-        "score": -0.133343
-      }
-    ]
+      "expected_improvement": "Slightly tighter wall coverage and a small boundary penalty bump should smooth flange/cylinder silhouette fringes while keeping the bore protected.",
+      "geometry_view": "geometry_views/deepcadimg_000035_geometry.png",
+      "geometry_view_clean": "geometry_views/deepcadimg_000035_geometry_clean.png"
+    },
+    "meshy_close": null
   },
   {
     "sample_id": "deepcadimg_117514",
     "success": true,
     "recon_noisy_stl": "deepcadimg_117514_recon_noisy.stl",
-    "strategy": "bp_1.5+holefill+meshyclose",
-    "triangles": 7958,
-    "vertices": 3981,
-    "watertight": true,
+    "strategy": "bp_1.5+holefill",
+    "triangles": 7860,
+    "vertices": 3982,
+    "watertight": false,
     "edge_manifold": true,
-    "long_edge_density": 0.009,
-    "boundary_edges": 0,
-    "chamfer": 0.0377,
+    "long_edge_density": 0.0022,
+    "boundary_edges": 112,
+    "chamfer": 0.034498,
     "hole_fill": {
       "hole_fill_diag": 2.640336,
       "hole_fill_boundary_before": 177,
-      "hole_fill_protected_loops": 10,
-      "hole_fill_protected_min_perim": 0.284122,
-      "hole_fill_pass1_size": 0.25571,
-      "hole_fill_pass2_size": 0.25571,
-      "hole_fill_boundary_after_pass1": 62,
+      "hole_fill_protected_loops": 21,
+      "hole_fill_protected_min_perim": 0.130128,
+      "hole_fill_pass1_size": 0.117116,
+      "hole_fill_pass2_size": 0.117116,
+      "hole_fill_boundary_after_pass1": 116,
       "hole_fill_method": "open3d_tensor_2pass",
-      "hole_fill_boundary_after": 58
+      "hole_fill_boundary_after": 112
     },
     "candidates_evaluated": 10,
     "candidate_summary": [
       {
         "strategy": "poisson_d9",
-        "triangles": 14181,
+        "triangles": 14157,
         "long_edge_density": 0.0,
-        "chamfer": 0.035744,
-        "score": 0.107038
+        "chamfer": 0.036069,
+        "score": 0.246497
       },
       {
         "strategy": "poisson_d10",
-        "triangles": 14181,
+        "triangles": 14157,
         "long_edge_density": 0.0,
-        "chamfer": 0.036046,
-        "score": 0.107381
+        "chamfer": 0.036036,
+        "score": 0.24647
       },
       {
         "strategy": "poisson_d11",
-        "triangles": 14181,
+        "triangles": 14157,
         "long_edge_density": 0.0,
-        "chamfer": 0.036105,
-        "score": 0.107166
+        "chamfer": 0.036176,
+        "score": 0.246501
       },
       {
         "strategy": "alpha_0.030",
         "triangles": 3818,
         "long_edge_density": 0.0238,
-        "chamfer": 0.156878,
-        "score": -0.551218
+        "chamfer": 0.157975,
+        "score": -0.272203
       },
       {
         "strategy": "alpha_0.050",
         "triangles": 8208,
         "long_edge_density": 0.0632,
-        "chamfer": 0.045291,
-        "score": -0.3381
+        "chamfer": 0.045826,
+        "score": -0.057863
       },
       {
         "strategy": "alpha_0.075",
         "triangles": 6793,
         "long_edge_density": 0.0808,
-        "chamfer": 0.054603,
-        "score": -0.118949
+        "chamfer": 0.054819,
+        "score": 0.16098
       },
       {
         "strategy": "bp_1.0",
         "triangles": 7839,
         "long_edge_density": 0.0,
-        "chamfer": 0.033613,
-        "score": 0.1592
+        "chamfer": 0.033531,
+        "score": 0.438956
       },
       {
         "strategy": "bp_1.5",
         "triangles": 7835,
         "long_edge_density": 0.0021,
-        "chamfer": 0.034212,
-        "score": 0.190259
+        "chamfer": 0.034669,
+        "score": 0.470348
       },
       {
         "strategy": "bp_2.2",
         "triangles": 7570,
         "long_edge_density": 0.0096,
-        "chamfer": 0.036495,
-        "score": 0.146961
+        "chamfer": 0.036356,
+        "score": 0.462148
       },
       {
         "strategy": "bp_3.0",
         "triangles": 7076,
         "long_edge_density": 0.0223,
-        "chamfer": 0.038584,
-        "score": 0.128258
+        "chamfer": 0.037905,
+        "score": 0.44301
       }
     ],
     "applied_overrides": {
@@ -1240,8 +251,8 @@
           10,
           11
         ],
-        "poisson_density_quantile": 0.01,
-        "envelope_radius_factor": 2.4,
+        "poisson_density_quantile": 0.012,
+        "envelope_radius_factor": 2.6,
         "alpha_factors": [
           0.03,
           0.05,
@@ -1259,64 +270,56 @@
         "alpha_bonus": 0.01,
         "boundary_penalty": 2.0,
         "long_edge_penalty": 2.0,
-        "real_hole_bonus": 0.035
+        "real_hole_bonus": 0.07
       },
       "HOLE_FILL_PARAMS": {
         "enable_in_noisy": true,
-        "pass1_frac": 0.15,
+        "pass1_frac": 0.2,
         "pass2_frac": 0.5,
         "min_loop_length_abs": 0.15,
         "protect_real_holes": true,
         "circular_protect_perim_frac": 0.06,
         "circularity_threshold": 0.6,
         "absolute_protect_perim_frac": 0.25,
-        "meshy_close": true,
+        "meshy_close": false,
         "meshy_max_iters": 4,
-        "meshy_unprotected_cap_frac": 1.5
+        "meshy_unprotected_cap_frac": 1.5,
+        "through_hole_max_depth_frac": 0.55
       }
     },
     "cohesion": {
-      "score": 78,
-      "diagnosis": "The stepped cylindrical part reads cleanly in all six views with crisp silhouettes, good Z-rotational symmetry, and clean depth steps between the three tiers. The Top depth view shows concentric rings suggesting a possible counter-bore/recess, but the Top silhouette is fully filled and the Bottom view shows no corresponding hole \u2014 so either there's no through-hole (fine) or a shallow blind recess that isn't represented as an opening (also fine for cohesion). Edges are slightly faceted (low-poly polygonal silhouette) but acceptable.",
-      "symmetry": "Z-rotational (~12-fold)",
-      "hole_count": 0,
-      "expected_improvement": "Baseline already cohesive; no changes needed.",
-      "geometry_view": "geometry_views/deepcadimg_117514_geometry.png"
+      "score": 80,
+      "diagnosis": "Stepped cylindrical part with cross-bore through the upper neck. The through-hole is now clearly visible as a dark island in Front, Back, and Left silhouettes; the Right silhouette still shows the bore bridged at that exit. Top/Bottom disks are clean and correctly solid; cosmetic blue gaps on the base are minor and will be handled by image-gen.",
+      "symmetry": "Z-rotational with X-axis cross-bore (X-mirror)",
+      "hole_count": 1,
+      "expected_improvement": "Tighter envelope and stricter hole protection should let the right-side bore exit emerge as a true dark island, matching the other three views.",
+      "geometry_view": "geometry_views/deepcadimg_117514_geometry.png",
+      "geometry_view_clean": "geometry_views/deepcadimg_117514_geometry_clean.png"
     },
-    "meshy_close": {
-      "meshy_close_diag": 2.640336,
-      "meshy_close_boundary_before": 58,
-      "meshy_close_protected_loops": 2,
-      "meshy_close_protected_min_perim": 1.454553,
-      "meshy_close_cap": 1.309098,
-      "meshy_close_iterations": 1,
-      "meshy_close_boundary_after": 0,
-      "meshy_close_method": "open3d_tensor_iterative",
-      "meshy_close_final_protected_loops": 2
-    }
+    "meshy_close": null
   },
   {
     "sample_id": "deepcadimg_128105",
     "success": true,
     "recon_noisy_stl": "deepcadimg_128105_recon_noisy.stl",
-    "strategy": "bp_1.0+holefill+meshyclose",
-    "triangles": 8026,
-    "vertices": 4017,
+    "strategy": "bp_1.5+holefill",
+    "triangles": 7800,
+    "vertices": 3939,
     "watertight": false,
     "edge_manifold": true,
-    "long_edge_density": 0.0061,
-    "boundary_edges": 8,
-    "chamfer": 0.026873,
+    "long_edge_density": 0.0009,
+    "boundary_edges": 84,
+    "chamfer": 0.024411,
     "hole_fill": {
       "hole_fill_diag": 2.121639,
-      "hole_fill_boundary_before": 195,
-      "hole_fill_protected_loops": 6,
-      "hole_fill_protected_min_perim": 0.444076,
-      "hole_fill_pass1_size": 0.318246,
-      "hole_fill_pass2_size": 0.399669,
-      "hole_fill_boundary_after_pass1": 15,
+      "hole_fill_boundary_before": 103,
+      "hole_fill_protected_loops": 10,
+      "hole_fill_protected_min_perim": 0.09654,
+      "hole_fill_pass1_size": 0.086886,
+      "hole_fill_pass2_size": 0.086886,
+      "hole_fill_boundary_after_pass1": 84,
       "hole_fill_method": "open3d_tensor_2pass",
-      "hole_fill_boundary_after": 8
+      "hole_fill_boundary_after": 84
     },
     "candidates_evaluated": 10,
     "candidate_summary": [
@@ -1324,71 +327,71 @@
         "strategy": "poisson_d9",
         "triangles": 21103,
         "long_edge_density": 0.0,
-        "chamfer": 0.025056,
-        "score": 0.175432
+        "chamfer": 0.024866,
+        "score": 0.17552
       },
       {
         "strategy": "poisson_d10",
         "triangles": 21103,
         "long_edge_density": 0.0,
-        "chamfer": 0.024836,
-        "score": 0.175423
+        "chamfer": 0.024944,
+        "score": 0.175251
       },
       {
         "strategy": "poisson_d11",
         "triangles": 21103,
         "long_edge_density": 0.0,
-        "chamfer": 0.02481,
-        "score": 0.175707
+        "chamfer": 0.024861,
+        "score": 0.175582
       },
       {
         "strategy": "alpha_0.030",
         "triangles": 7993,
         "long_edge_density": 0.0367,
-        "chamfer": 0.029515,
-        "score": -0.286339
+        "chamfer": 0.029302,
+        "score": -0.286491
       },
       {
         "strategy": "alpha_0.050",
         "triangles": 7542,
         "long_edge_density": 0.0539,
-        "chamfer": 0.032661,
-        "score": -0.161405
+        "chamfer": 0.0325,
+        "score": 0.038493
       },
       {
         "strategy": "alpha_0.075",
         "triangles": 4616,
         "long_edge_density": 0.0302,
-        "chamfer": 0.029198,
-        "score": -0.085465
+        "chamfer": 0.029121,
+        "score": 0.014274
       },
       {
         "strategy": "bp_1.0",
         "triangles": 7885,
         "long_edge_density": 0.0,
-        "chamfer": 0.02404,
-        "score": 0.220563
+        "chamfer": 0.024096,
+        "score": 0.320509
       },
       {
         "strategy": "bp_1.5",
         "triangles": 7793,
         "long_edge_density": 0.0009,
-        "chamfer": 0.024184,
-        "score": 0.141767
+        "chamfer": 0.024438,
+        "score": 0.341804
       },
       {
         "strategy": "bp_2.2",
         "triangles": 7305,
         "long_edge_density": 0.0016,
-        "chamfer": 0.02458,
-        "score": 0.141627
+        "chamfer": 0.024786,
+        "score": 0.34174
       },
       {
         "strategy": "bp_3.0",
         "triangles": 6673,
         "long_edge_density": 0.0033,
-        "chamfer": 0.025398,
-        "score": 0.137671
+        "chamfer": 0.025298,
+        "score": 0.237709
       }
     ],
     "applied_overrides": {
@@ -1428,438 +431,119 @@
         "circular_protect_perim_frac": 0.08,
         "circularity_threshold": 0.6,
         "absolute_protect_perim_frac": 0.25,
-        "meshy_close": true,
+        "meshy_close": false,
         "meshy_max_iters": 5,
         "meshy_unprotected_cap_frac": 1.8
       }
     },
     "cohesion": {
-      "score": 82,
-      "diagnosis": "Silhouettes are clean across all six views: dumbbell profile in front/back, flat rectangle in top/bottom, square in left/right\u2014consistent with a solid bone-shaped part with no real through-holes. Minor blue speckle remains on the right-view depth boundary and a small blue artifact on the top-right corner of the top depth view. Edges are otherwise crisp and symmetric.",
-      "symmetry": "X-mirror and Y-mirror (bone profile)",
-      "hole_count": 0,
-      "expected_improvement": "Tighter density quantile and slightly stronger boundary penalty should clean up the residual edge speckle without disturbing the cohesive bone shape.",
-      "geometry_view": "geometry_views/deepcadimg_128105_geometry.png"
+      "score": 72,
+      "diagnosis": "Front and Back views show two clean through-holes at the bosses, but the Top and Bottom silhouettes are completely bridged - the bores do not exit through the top/bottom faces, so the through-hole topology is inconsistent across opposing views. Edges are otherwise clean and the X-mirror symmetry of the two eyes is preserved.",
+      "symmetry": "X-mirror (2-fold) about the long axis",
+      "hole_count": 2,
+      "expected_improvement": "Tighter hole protection and lower density quantile should let the top/bottom bore openings survive instead of being bridged.",
+      "geometry_view": "geometry_views/deepcadimg_128105_geometry.png",
+      "geometry_view_clean": "geometry_views/deepcadimg_128105_geometry_clean.png"
     },
-    "meshy_close": {
-      "meshy_close_diag": 2.121639,
-      "meshy_close_boundary_before": 8,
-      "meshy_close_protected_loops": 1,
-      "meshy_close_protected_min_perim": 0.673836,
-      "meshy_close_cap": 0.606452,
-      "meshy_close_iterations": 1,
-      "meshy_close_boundary_after": 8,
-      "meshy_close_method": "open3d_tensor_iterative",
-      "meshy_close_final_protected_loops": 1
-    }
-  },
-  {
-    "sample_id": "deepcadimg_065120",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_065120_recon_noisy.stl",
-    "strategy": "poisson_d11",
-    "triangles": 21870,
-    "vertices": 11161,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 482,
-    "chamfer": 0.075897,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 21870,
-        "long_edge_density": 0.0,
-        "chamfer": 0.075948,
-        "score": -0.088987
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 21870,
-        "long_edge_density": 0.0,
-        "chamfer": 0.076032,
-        "score": -0.088994
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 21870,
-        "long_edge_density": 0.0,
-        "chamfer": 0.076208,
-        "score": -0.089508
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 21870,
-        "long_edge_density": 0.0,
-        "chamfer": 0.076109,
-        "score": -0.089044
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 2274,
-        "long_edge_density": 0.0,
-        "chamfer": 0.258434,
-        "score": -0.310297
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 7736,
-        "long_edge_density": 0.0669,
-        "chamfer": 0.06282,
-        "score": -0.208369
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 7311,
-        "long_edge_density": 0.051,
-        "chamfer": 0.062688,
-        "score": -0.14878
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 6166,
-        "long_edge_density": 0.0487,
-        "chamfer": 0.073507,
-        "score": -0.142623
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 6254,
-        "long_edge_density": 0.0,
-        "chamfer": 0.06158,
-        "score": -0.158942
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 5884,
-        "long_edge_density": 0.004,
-        "chamfer": 0.057949,
-        "score": -0.159707
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 4638,
-        "long_edge_density": 0.01,
-        "chamfer": 0.079441,
-        "score": -0.185369
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 4292,
-        "long_edge_density": 0.0084,
-        "chamfer": 0.087678,
-        "score": -0.172776
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_014528",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_014528_recon_noisy.stl",
-    "strategy": "poisson_d11",
-    "triangles": 19166,
-    "vertices": 9658,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 172,
-    "chamfer": 0.050712,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 19166,
-        "long_edge_density": 0.0,
-        "chamfer": 0.050918,
-        "score": -0.053491
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 19166,
-        "long_edge_density": 0.0,
-        "chamfer": 0.05063,
-        "score": -0.053198
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 19162,
-        "long_edge_density": 0.0,
-        "chamfer": 0.051222,
-        "score": -0.053228
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 19166,
-        "long_edge_density": 0.0,
-        "chamfer": 0.050809,
-        "score": -0.053634
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 2385,
-        "long_edge_density": 0.0,
-        "chamfer": 0.367533,
-        "score": -0.413034
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 6966,
-        "long_edge_density": 0.0605,
-        "chamfer": 0.059609,
-        "score": -0.248785
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 7635,
-        "long_edge_density": 0.0797,
-        "chamfer": 0.059419,
-        "score": -0.247972
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 6587,
-        "long_edge_density": 0.0842,
-        "chamfer": 0.084011,
-        "score": -0.233552
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7111,
-        "long_edge_density": 0.0,
-        "chamfer": 0.045181,
-        "score": -0.113613
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 6228,
-        "long_edge_density": 0.0027,
-        "chamfer": 0.050526,
-        "score": -0.130784
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 5412,
-        "long_edge_density": 0.0113,
-        "chamfer": 0.056657,
-        "score": -0.138344
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 4116,
-        "long_edge_density": 0.0931,
-        "chamfer": 0.077874,
-        "score": -0.282836
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_064437",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_064437_recon_noisy.stl",
-    "strategy": "poisson_d11",
-    "triangles": 24168,
-    "vertices": 12279,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 410,
-    "chamfer": 0.048266,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 24167,
-        "long_edge_density": 0.0,
-        "chamfer": 0.04851,
-        "score": -0.061135
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 24167,
-        "long_edge_density": 0.0,
-        "chamfer": 0.048477,
-        "score": -0.061054
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 24167,
-        "long_edge_density": 0.0,
-        "chamfer": 0.048678,
-        "score": -0.061064
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 24168,
-        "long_edge_density": 0.0,
-        "chamfer": 0.048327,
-        "score": -0.060451
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 626,
-        "long_edge_density": 0.0,
-        "chamfer": 0.586499,
-        "score": -0.679584
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 3897,
-        "long_edge_density": 0.0901,
-        "chamfer": 0.122487,
-        "score": -0.387288
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 6002,
-        "long_edge_density": 0.0862,
-        "chamfer": 0.083381,
-        "score": -0.335609
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 7574,
-        "long_edge_density": 0.0624,
-        "chamfer": 0.072582,
-        "score": -0.268281
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 5618,
-        "long_edge_density": 0.0,
-        "chamfer": 0.098716,
-        "score": -0.191003
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 5339,
-        "long_edge_density": 0.0042,
-        "chamfer": 0.10217,
-        "score": -0.189585
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 4917,
-        "long_edge_density": 0.0104,
-        "chamfer": 0.108371,
-        "score": -0.200094
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 4090,
-        "long_edge_density": 0.0664,
-        "chamfer": 0.125018,
-        "score": -0.295856
-      }
-    ]
+    "meshy_close": null
   },
   {
     "sample_id": "deepcadimg_002354",
     "success": true,
     "recon_noisy_stl": "deepcadimg_002354_recon_noisy.stl",
-    "strategy": "poisson_d9+holefill+meshyclose",
-    "triangles": 10682,
-    "vertices": 5345,
+    "strategy": "bp_1.5+holefill",
+    "triangles": 7834,
+    "vertices": 4021,
     "watertight": false,
     "edge_manifold": true,
-    "long_edge_density": 0.0092,
-    "boundary_edges": 12,
-    "chamfer": 0.051108,
+    "long_edge_density": 0.0026,
+    "boundary_edges": 228,
+    "chamfer": 0.031659,
     "candidates_evaluated": 10,
     "candidate_summary": [
       {
         "strategy": "poisson_d9",
-        "triangles": 10367,
+        "triangles": 10672,
         "long_edge_density": 0.0,
-        "chamfer": 0.033648,
-        "score": 0.321887
+        "chamfer": 0.035337,
+        "score": 0.367106
       },
       {
         "strategy": "poisson_d10",
-        "triangles": 10366,
+        "triangles": 10671,
         "long_edge_density": 0.0,
-        "chamfer": 0.034049,
-        "score": 0.322022
+        "chamfer": 0.034652,
+        "score": 0.367006
       },
       {
         "strategy": "poisson_d11",
-        "triangles": 10367,
+        "triangles": 10672,
         "long_edge_density": 0.0,
-        "chamfer": 0.033733,
-        "score": 0.321574
+        "chamfer": 0.034672,
+        "score": 0.367136
       },
       {
         "strategy": "alpha_0.030",
         "triangles": 4168,
         "long_edge_density": 0.0271,
-        "chamfer": 0.083429,
-        "score": -0.27565
+        "chamfer": 0.083767,
+        "score": -0.054917
       },
       {
         "strategy": "alpha_0.050",
         "triangles": 7995,
         "long_edge_density": 0.0766,
-        "chamfer": 0.045068,
-        "score": -0.205972
+        "chamfer": 0.045272,
+        "score": -0.01357
       },
       {
         "strategy": "alpha_0.075",
         "triangles": 5830,
         "long_edge_density": 0.0603,
-        "chamfer": 0.055863,
-        "score": 0.060181
+        "chamfer": 0.055778,
+        "score": 0.303148
       },
       {
         "strategy": "bp_1.0",
         "triangles": 7783,
         "long_edge_density": 0.0,
-        "chamfer": 0.03121,
-        "score": 0.17783
+        "chamfer": 0.031085,
+        "score": 0.378976
       },
       {
         "strategy": "bp_1.5",
         "triangles": 7805,
         "long_edge_density": 0.0021,
-        "chamfer": 0.031337,
-        "score": 0.286746
+        "chamfer": 0.031212,
+        "score": 0.385138
       },
       {
         "strategy": "bp_2.2",
         "triangles": 7629,
         "long_edge_density": 0.0107,
-        "chamfer": 0.033841,
-        "score": 0.281721
+        "chamfer": 0.033519,
+        "score": 0.377515
       },
       {
         "strategy": "bp_3.0",
         "triangles": 7133,
         "long_edge_density": 0.0172,
-        "chamfer": 0.036178,
-        "score": 0.272039
+        "chamfer": 0.036211,
+        "score": 0.36696
       }
     ],
     "hole_fill": {
-      "hole_fill_diag": 2.389925,
-      "hole_fill_boundary_before": 343,
-      "hole_fill_protected_loops": 8,
-      "hole_fill_protected_min_perim": 0.324305,
-      "hole_fill_pass1_size": 0.291874,
-      "hole_fill_pass2_size": 0.291874,
-      "hole_fill_boundary_after_pass1": 201,
+      "hole_fill_diag": 2.364905,
+      "hole_fill_boundary_before": 285,
+      "hole_fill_protected_loops": 14,
+      "hole_fill_protected_min_perim": 0.137382,
+      "hole_fill_pass1_size": 0.123644,
+      "hole_fill_pass2_size": 0.123644,
+      "hole_fill_boundary_after_pass1": 229,
       "hole_fill_method": "open3d_tensor_2pass",
-      "hole_fill_boundary_after": 193
+      "hole_fill_boundary_after": 228
     },
-    "meshy_close": {
-      "meshy_close_diag": 2.389925,
-      "meshy_close_boundary_before": 193,
-      "meshy_close_protected_loops": 2,
-      "meshy_close_protected_min_perim": 1.520561,
-      "meshy_close_cap": 1.368505,
-      "meshy_close_iterations": 3,
-      "meshy_close_boundary_after": 12,
-      "meshy_close_method": "open3d_tensor_iterative",
-      "meshy_close_final_protected_loops": 1
-    },
+    "meshy_close": null,
     "applied_overrides": {
       "RECON_PARAMS": {
         "poisson_depths": [
@@ -1867,8 +551,8 @@
           10,
           11
         ],
-        "poisson_density_quantile": 0.01,
-        "envelope_radius_factor": 2.0,
+        "poisson_density_quantile": 0.012,
+        "envelope_radius_factor": 2.4,
         "alpha_factors": [
           0.03,
           0.05,
@@ -1884,1696 +568,32 @@
       "SCORE_PARAMS": {
         "poisson_bonus": 0.03,
         "alpha_bonus": 0.01,
-        "boundary_penalty": 2.0,
+        "boundary_penalty": 1.5,
         "long_edge_penalty": 1.5,
-        "real_hole_bonus": 0.05
+        "real_hole_bonus": 0.06
       },
       "HOLE_FILL_PARAMS": {
         "enable_in_noisy": true,
-        "pass1_frac": 0.15,
+        "pass1_frac": 0.18,
         "pass2_frac": 0.5,
         "min_loop_length_abs": 0.15,
         "protect_real_holes": true,
-        "circular_protect_perim_frac": 0.08,
+        "circular_protect_perim_frac": 0.06,
         "circularity_threshold": 0.6,
         "absolute_protect_perim_frac": 0.25,
-        "meshy_close": true,
-        "meshy_max_iters": 5
+        "meshy_close": false,
+        "meshy_max_iters": 5,
+        "through_hole_max_depth_frac": 0.5
       }
     },
     "cohesion": {
-      "score": 76,
-      "diagnosis": "Through-hole reads cleanly in Top and Bottom with matching near-circular islands; L-bracket silhouette is coherent across all six views. Remaining minor defects: slightly wavy silhouette on the thin upstand (Front/Back) and softened corners on the Right/Left profile; hole outline still mildly non-circular.",
-      "symmetry": "X-mirror (left-right along the long axis)",
+      "score": 81,
+      "diagnosis": "Through-hole is preserved cleanly in both Top and Bottom silhouettes with matching circular outlines - topology is faithful. Top silhouette shows a few small cosmetic fringe artifacts on the left edge and a minor notch, but these are within image-gen cleanup range. Front/Back/Left/Right views are crisp with sharp L-step corners.",
+      "symmetry": "X-mirror (with through-hole on Z axis)",
       "hole_count": 1,
-      "expected_improvement": "Slightly higher Poisson resolution and tighter density quantile should sharpen the upstand edges and round out the hole outline.",
-      "geometry_view": "geometry_views/deepcadimg_002354_geometry.png"
+      "expected_improvement": "Slightly tighter density quantile and modest boundary penalty should clean fringe artifacts on Top view without risking the protected through-hole.",
+      "geometry_view": "geometry_views/deepcadimg_002354_geometry.png",
+      "geometry_view_clean": "geometry_views/deepcadimg_002354_geometry_clean.png"
     }
-  },
-  {
-    "sample_id": "deepcadimg_037782",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_037782_recon_noisy.stl",
-    "strategy": "poisson_d10",
-    "triangles": 19129,
-    "vertices": 9639,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 151,
-    "chamfer": 0.043452,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 19129,
-        "long_edge_density": 0.0,
-        "chamfer": 0.043455,
-        "score": -0.045063
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 19129,
-        "long_edge_density": 0.0,
-        "chamfer": 0.043613,
-        "score": -0.04553
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 19129,
-        "long_edge_density": 0.0,
-        "chamfer": 0.043286,
-        "score": -0.045348
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 19129,
-        "long_edge_density": 0.0,
-        "chamfer": 0.043481,
-        "score": -0.04549
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 339,
-        "long_edge_density": 0.0,
-        "chamfer": 0.78247,
-        "score": -0.901269
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 1774,
-        "long_edge_density": 0.062,
-        "chamfer": 0.408186,
-        "score": -0.654821
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 6632,
-        "long_edge_density": 0.0488,
-        "chamfer": 0.063657,
-        "score": -0.316937
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 7963,
-        "long_edge_density": 0.0441,
-        "chamfer": 0.061347,
-        "score": -0.251113
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7744,
-        "long_edge_density": 0.0,
-        "chamfer": 0.040988,
-        "score": -0.081103
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 7816,
-        "long_edge_density": 0.0024,
-        "chamfer": 0.042162,
-        "score": -0.0826
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 7811,
-        "long_edge_density": 0.0034,
-        "chamfer": 0.042706,
-        "score": -0.08313
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 7692,
-        "long_edge_density": 0.0045,
-        "chamfer": 0.0432,
-        "score": -0.085156
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_108596",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_108596_recon_noisy.stl",
-    "strategy": "poisson_d9",
-    "triangles": 21720,
-    "vertices": 11140,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 654,
-    "chamfer": 0.046071,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 21722,
-        "long_edge_density": 0.0,
-        "chamfer": 0.046442,
-        "score": -0.063801
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 21720,
-        "long_edge_density": 0.0,
-        "chamfer": 0.045813,
-        "score": -0.063957
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 21721,
-        "long_edge_density": 0.0,
-        "chamfer": 0.046259,
-        "score": -0.064041
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 21722,
-        "long_edge_density": 0.0,
-        "chamfer": 0.04646,
-        "score": -0.064147
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 963,
-        "long_edge_density": 0.0006,
-        "chamfer": 0.360379,
-        "score": -0.506373
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 6081,
-        "long_edge_density": 0.0763,
-        "chamfer": 0.059659,
-        "score": -0.35209
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 8031,
-        "long_edge_density": 0.0697,
-        "chamfer": 0.05756,
-        "score": -0.29958
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 6278,
-        "long_edge_density": 0.0182,
-        "chamfer": 0.044082,
-        "score": -0.074091
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7399,
-        "long_edge_density": 0.0,
-        "chamfer": 0.03966,
-        "score": -0.097265
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 4848,
-        "long_edge_density": 0.0072,
-        "chamfer": 0.12912,
-        "score": -0.172979
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 4840,
-        "long_edge_density": 0.008,
-        "chamfer": 0.129832,
-        "score": -0.172978
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 4749,
-        "long_edge_density": 0.0084,
-        "chamfer": 0.129584,
-        "score": -0.171961
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_078812",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_078812_recon_noisy.stl",
-    "strategy": "poisson_d8",
-    "triangles": 10639,
-    "vertices": 5391,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 161,
-    "chamfer": 0.029746,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 10639,
-        "long_edge_density": 0.0,
-        "chamfer": 0.029717,
-        "score": -0.02772
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 10639,
-        "long_edge_density": 0.0,
-        "chamfer": 0.029899,
-        "score": -0.027827
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 10639,
-        "long_edge_density": 0.0,
-        "chamfer": 0.029934,
-        "score": -0.027407
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 10639,
-        "long_edge_density": 0.0,
-        "chamfer": 0.029964,
-        "score": -0.027618
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 2889,
-        "long_edge_density": 0.0044,
-        "chamfer": 0.108943,
-        "score": -0.313914
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 8081,
-        "long_edge_density": 0.0657,
-        "chamfer": 0.036114,
-        "score": -0.302879
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 7674,
-        "long_edge_density": 0.0848,
-        "chamfer": 0.043978,
-        "score": -0.24037
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 4996,
-        "long_edge_density": 0.0179,
-        "chamfer": 0.034703,
-        "score": -0.056472
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7887,
-        "long_edge_density": 0.0,
-        "chamfer": 0.027599,
-        "score": -0.053481
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 7942,
-        "long_edge_density": 0.0035,
-        "chamfer": 0.028107,
-        "score": -0.05194
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 7807,
-        "long_edge_density": 0.0059,
-        "chamfer": 0.029028,
-        "score": -0.053687
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 7343,
-        "long_edge_density": 0.0097,
-        "chamfer": 0.029837,
-        "score": -0.060123
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_030107",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_030107_recon_noisy.stl",
-    "strategy": "poisson_d11",
-    "triangles": 15500,
-    "vertices": 8104,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 800,
-    "chamfer": 0.067255,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 15499,
-        "long_edge_density": 0.0,
-        "chamfer": 0.067585,
-        "score": -0.091966
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 15498,
-        "long_edge_density": 0.0,
-        "chamfer": 0.067411,
-        "score": -0.091532
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 15498,
-        "long_edge_density": 0.0,
-        "chamfer": 0.067285,
-        "score": -0.092427
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 15500,
-        "long_edge_density": 0.0,
-        "chamfer": 0.067437,
-        "score": -0.092444
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 1333,
-        "long_edge_density": 0.0,
-        "chamfer": 0.382901,
-        "score": -0.499478
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 4029,
-        "long_edge_density": 0.052,
-        "chamfer": 0.192922,
-        "score": -0.360855
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 6318,
-        "long_edge_density": 0.1122,
-        "chamfer": 0.107359,
-        "score": -0.358772
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 6919,
-        "long_edge_density": 0.0997,
-        "chamfer": 0.09355,
-        "score": -0.318113
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 2604,
-        "long_edge_density": 0.0,
-        "chamfer": 0.269723,
-        "score": -0.533837
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 4644,
-        "long_edge_density": 0.004,
-        "chamfer": 0.079868,
-        "score": -0.355323
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 2133,
-        "long_edge_density": 0.0155,
-        "chamfer": 0.272132,
-        "score": -0.564945
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 3642,
-        "long_edge_density": 0.0382,
-        "chamfer": 0.11926,
-        "score": -0.412427
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_089073",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_089073_recon_noisy.stl",
-    "strategy": "poisson_d8",
-    "triangles": 21075,
-    "vertices": 10700,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 377,
-    "chamfer": 0.049304,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 21075,
-        "long_edge_density": 0.0,
-        "chamfer": 0.049612,
-        "score": -0.059428
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 21074,
-        "long_edge_density": 0.0,
-        "chamfer": 0.04943,
-        "score": -0.05944
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 21074,
-        "long_edge_density": 0.0,
-        "chamfer": 0.049598,
-        "score": -0.059362
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 21073,
-        "long_edge_density": 0.0,
-        "chamfer": 0.049513,
-        "score": -0.059578
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 1190,
-        "long_edge_density": 0.0,
-        "chamfer": 0.459464,
-        "score": -0.538397
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 4631,
-        "long_edge_density": 0.056,
-        "chamfer": 0.094542,
-        "score": -0.292918
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 7233,
-        "long_edge_density": 0.0895,
-        "chamfer": 0.06902,
-        "score": -0.324319
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 7179,
-        "long_edge_density": 0.0757,
-        "chamfer": 0.079958,
-        "score": -0.255151
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 6806,
-        "long_edge_density": 0.0,
-        "chamfer": 0.05201,
-        "score": -0.14683
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 6835,
-        "long_edge_density": 0.0019,
-        "chamfer": 0.052943,
-        "score": -0.142566
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 6804,
-        "long_edge_density": 0.004,
-        "chamfer": 0.054347,
-        "score": -0.145631
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 6632,
-        "long_edge_density": 0.0103,
-        "chamfer": 0.056153,
-        "score": -0.159456
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_097805",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_097805_recon_noisy.stl",
-    "strategy": "poisson_d11",
-    "triangles": 16309,
-    "vertices": 8398,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 523,
-    "chamfer": 0.060551,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 16309,
-        "long_edge_density": 0.0,
-        "chamfer": 0.060608,
-        "score": -0.074907
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 16307,
-        "long_edge_density": 0.0,
-        "chamfer": 0.06068,
-        "score": -0.074578
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 16303,
-        "long_edge_density": 0.0,
-        "chamfer": 0.06062,
-        "score": -0.074079
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 16309,
-        "long_edge_density": 0.0,
-        "chamfer": 0.061019,
-        "score": -0.074611
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 264,
-        "long_edge_density": 0.0,
-        "chamfer": 0.870917,
-        "score": -1.019895
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 603,
-        "long_edge_density": 0.0365,
-        "chamfer": 0.728664,
-        "score": -0.835622
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 4788,
-        "long_edge_density": 0.1093,
-        "chamfer": 0.13017,
-        "score": -0.428424
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 7174,
-        "long_edge_density": 0.0711,
-        "chamfer": 0.091424,
-        "score": -0.308919
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 6178,
-        "long_edge_density": 0.0,
-        "chamfer": 0.056507,
-        "score": -0.269624
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 6032,
-        "long_edge_density": 0.0038,
-        "chamfer": 0.058892,
-        "score": -0.266135
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 5837,
-        "long_edge_density": 0.0081,
-        "chamfer": 0.062354,
-        "score": -0.273733
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 5378,
-        "long_edge_density": 0.0378,
-        "chamfer": 0.074075,
-        "score": -0.32763
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_108680",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_108680_recon_noisy.stl",
-    "strategy": "poisson_d10+holefill",
-    "triangles": 11800,
-    "vertices": 5904,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0148,
-    "boundary_edges": 58,
-    "chamfer": 0.121139,
-    "hole_fill": {
-      "hole_fill_diag": 3.409917,
-      "hole_fill_boundary_before": 459,
-      "hole_fill_pass1_size": 1.022975,
-      "hole_fill_pass2_size": 3.068925,
-      "hole_fill_boundary_after_pass1": 391,
-      "hole_fill_method": "open3d_tensor_2pass",
-      "hole_fill_boundary_after": 58
-    },
-    "candidates_evaluated": 10,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d10",
-        "triangles": 11407,
-        "long_edge_density": 0.0,
-        "chamfer": 0.078194,
-        "score": -0.158342
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 11408,
-        "long_edge_density": 0.0,
-        "chamfer": 0.077874,
-        "score": -0.158016
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 1013,
-        "long_edge_density": 0.0,
-        "chamfer": 0.685427,
-        "score": -0.859426
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 3824,
-        "long_edge_density": 0.036,
-        "chamfer": 0.169617,
-        "score": -0.61914
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 5305,
-        "long_edge_density": 0.0987,
-        "chamfer": 0.127177,
-        "score": -0.821613
-      },
-      {
-        "strategy": "alpha_0.090",
-        "triangles": 7412,
-        "long_edge_density": 0.0804,
-        "chamfer": 0.099127,
-        "score": -0.642222
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 5872,
-        "long_edge_density": 0.0,
-        "chamfer": 0.070082,
-        "score": -0.951211
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 5659,
-        "long_edge_density": 0.002,
-        "chamfer": 0.065236,
-        "score": -0.934012
-      },
-      {
-        "strategy": "bp_2.2",
-        "triangles": 5238,
-        "long_edge_density": 0.0177,
-        "chamfer": 0.0679,
-        "score": -0.947432
-      },
-      {
-        "strategy": "bp_3.0",
-        "triangles": 4605,
-        "long_edge_density": 0.0595,
-        "chamfer": 0.085532,
-        "score": -1.063646
-      }
-    ],
-    "applied_overrides": {
-      "RECON_PARAMS": {
-        "poisson_depths": [
-          10,
-          11
-        ],
-        "poisson_density_quantile": 0.012,
-        "envelope_radius_factor": 2.6,
-        "alpha_factors": [
-          0.025,
-          0.04,
-          0.06,
-          0.09
-        ],
-        "ball_pivot_radius_factors": [
-          1.0,
-          1.5,
-          2.2,
-          3.0
-        ]
-      },
-      "SCORE_PARAMS": {
-        "poisson_bonus": 0.03,
-        "alpha_bonus": 0.01,
-        "boundary_penalty": 2.5,
-        "long_edge_penalty": 3.0
-      },
-      "HOLE_FILL_PARAMS": {
-        "enable_in_noisy": true,
-        "pass1_frac": 0.3,
-        "pass2_frac": 0.9,
-        "min_loop_length_abs": 0.2
-      }
-    }
-  },
-  {
-    "sample_id": "deepcadimg_058137",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_058137_recon_noisy.stl",
-    "strategy": "alpha_0.025",
-    "triangles": 7796,
-    "vertices": 3894,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0006,
-    "boundary_edges": 142,
-    "chamfer": 0.038399,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 12429,
-        "long_edge_density": 0.0,
-        "chamfer": 0.055346,
-        "score": -0.072155
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 12434,
-        "long_edge_density": 0.0,
-        "chamfer": 0.055266,
-        "score": -0.072274
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 12434,
-        "long_edge_density": 0.0,
-        "chamfer": 0.055338,
-        "score": -0.071865
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 12441,
-        "long_edge_density": 0.0,
-        "chamfer": 0.055399,
-        "score": -0.073205
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 7796,
-        "long_edge_density": 0.0006,
-        "chamfer": 0.038437,
-        "score": -0.053869
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 7552,
-        "long_edge_density": 0.0229,
-        "chamfer": 0.038021,
-        "score": -0.081931
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 6594,
-        "long_edge_density": 0.0235,
-        "chamfer": 0.040504,
-        "score": -0.079535
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 5494,
-        "long_edge_density": 0.0267,
-        "chamfer": 0.043927,
-        "score": -0.084974
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7297,
-        "long_edge_density": 0.0,
-        "chamfer": 0.032645,
-        "score": -0.103858
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 4294,
-        "long_edge_density": 0.0006,
-        "chamfer": 0.056877,
-        "score": -0.123235
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 4009,
-        "long_edge_density": 0.0076,
-        "chamfer": 0.060922,
-        "score": -0.118535
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 3764,
-        "long_edge_density": 0.0158,
-        "chamfer": 0.063935,
-        "score": -0.129208
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_081945",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_081945_recon_noisy.stl",
-    "strategy": "poisson_d8",
-    "triangles": 17478,
-    "vertices": 9092,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 782,
-    "chamfer": 0.045381,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 17478,
-        "long_edge_density": 0.0,
-        "chamfer": 0.045534,
-        "score": -0.067604
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 17478,
-        "long_edge_density": 0.0,
-        "chamfer": 0.045552,
-        "score": -0.067723
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 17478,
-        "long_edge_density": 0.0,
-        "chamfer": 0.045621,
-        "score": -0.067838
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 17478,
-        "long_edge_density": 0.0,
-        "chamfer": 0.045449,
-        "score": -0.06787
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 616,
-        "long_edge_density": 0.0,
-        "chamfer": 0.553531,
-        "score": -0.704499
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 5456,
-        "long_edge_density": 0.0947,
-        "chamfer": 0.084595,
-        "score": -0.388018
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 7860,
-        "long_edge_density": 0.103,
-        "chamfer": 0.060703,
-        "score": -0.328125
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 5884,
-        "long_edge_density": 0.0239,
-        "chamfer": 0.048752,
-        "score": -0.081153
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 4035,
-        "long_edge_density": 0.0,
-        "chamfer": 0.131443,
-        "score": -0.189837
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 7063,
-        "long_edge_density": 0.0077,
-        "chamfer": 0.039269,
-        "score": -0.117195
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 6748,
-        "long_edge_density": 0.0126,
-        "chamfer": 0.041629,
-        "score": -0.125611
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 6055,
-        "long_edge_density": 0.0374,
-        "chamfer": 0.045996,
-        "score": -0.169872
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_004397",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_004397_recon_noisy.stl",
-    "strategy": "poisson_d10+holefill",
-    "triangles": 13106,
-    "vertices": 6555,
-    "watertight": true,
-    "edge_manifold": true,
-    "long_edge_density": 0.0014,
-    "boundary_edges": 0,
-    "chamfer": 0.038868,
-    "hole_fill": {
-      "hole_fill_diag": 2.479181,
-      "hole_fill_boundary_before": 103,
-      "hole_fill_pass1_size": 0.619795,
-      "hole_fill_pass2_size": 1.735427,
-      "hole_fill_boundary_after_pass1": 0,
-      "hole_fill_method": "open3d_tensor_1pass",
-      "hole_fill_boundary_after": 0
-    },
-    "candidates_evaluated": 11,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 13013,
-        "long_edge_density": 0.0,
-        "chamfer": 0.036444,
-        "score": -0.044542
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 13013,
-        "long_edge_density": 0.0,
-        "chamfer": 0.036555,
-        "score": -0.04434
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 13013,
-        "long_edge_density": 0.0,
-        "chamfer": 0.036506,
-        "score": -0.044475
-      },
-      {
-        "strategy": "alpha_0.020",
-        "triangles": 675,
-        "long_edge_density": 0.0,
-        "chamfer": 0.369293,
-        "score": -0.742567
-      },
-      {
-        "strategy": "alpha_0.035",
-        "triangles": 5655,
-        "long_edge_density": 0.0562,
-        "chamfer": 0.061892,
-        "score": -0.593071
-      },
-      {
-        "strategy": "alpha_0.050",
-        "triangles": 7857,
-        "long_edge_density": 0.0663,
-        "chamfer": 0.049263,
-        "score": -0.494904
-      },
-      {
-        "strategy": "alpha_0.080",
-        "triangles": 6255,
-        "long_edge_density": 0.049,
-        "chamfer": 0.059257,
-        "score": -0.20914
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7816,
-        "long_edge_density": 0.0,
-        "chamfer": 0.033927,
-        "score": -0.077605
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 7847,
-        "long_edge_density": 0.0022,
-        "chamfer": 0.034373,
-        "score": -0.075205
-      },
-      {
-        "strategy": "bp_2.2",
-        "triangles": 7713,
-        "long_edge_density": 0.0058,
-        "chamfer": 0.035435,
-        "score": -0.075406
-      },
-      {
-        "strategy": "bp_3.0",
-        "triangles": 7325,
-        "long_edge_density": 0.0084,
-        "chamfer": 0.036184,
-        "score": -0.077817
-      }
-    ],
-    "applied_overrides": {
-      "RECON_PARAMS": {
-        "poisson_depths": [
-          8,
-          9,
-          10
-        ],
-        "poisson_density_quantile": 0.01,
-        "envelope_radius_factor": 3.0,
-        "alpha_factors": [
-          0.02,
-          0.035,
-          0.05,
-          0.08
-        ],
-        "ball_pivot_radius_factors": [
-          1.0,
-          1.5,
-          2.2,
-          3.0
-        ]
-      },
-      "SCORE_PARAMS": {
-        "boundary_penalty": 1.5,
-        "long_edge_penalty": 2.0,
-        "poisson_bonus": 0.015,
-        "alpha_bonus": 0.01
-      },
-      "HOLE_FILL_PARAMS": {
-        "enable_in_noisy": true,
-        "pass1_frac": 0.25,
-        "pass2_frac": 0.7,
-        "min_loop_length_abs": 0.15
-      }
-    }
-  },
-  {
-    "sample_id": "deepcadimg_110917",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_110917_recon_noisy.stl",
-    "strategy": "poisson_d8",
-    "triangles": 9495,
-    "vertices": 4894,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 309,
-    "chamfer": 0.032277,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 9495,
-        "long_edge_density": 0.0,
-        "chamfer": 0.031976,
-        "score": -0.039182
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 9496,
-        "long_edge_density": 0.0,
-        "chamfer": 0.032232,
-        "score": -0.039066
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 9496,
-        "long_edge_density": 0.0,
-        "chamfer": 0.032183,
-        "score": -0.039328
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 9495,
-        "long_edge_density": 0.0,
-        "chamfer": 0.032376,
-        "score": -0.039279
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 1808,
-        "long_edge_density": 0.009,
-        "chamfer": 0.310785,
-        "score": -0.514308
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 7658,
-        "long_edge_density": 0.0567,
-        "chamfer": 0.040356,
-        "score": -0.317781
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 6094,
-        "long_edge_density": 0.0246,
-        "chamfer": 0.038412,
-        "score": -0.080171
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 5114,
-        "long_edge_density": 0.0295,
-        "chamfer": 0.039502,
-        "score": -0.079029
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7812,
-        "long_edge_density": 0.0,
-        "chamfer": 0.029571,
-        "score": -0.05665
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 7861,
-        "long_edge_density": 0.0033,
-        "chamfer": 0.030154,
-        "score": -0.057701
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 7788,
-        "long_edge_density": 0.008,
-        "chamfer": 0.031102,
-        "score": -0.064545
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 7412,
-        "long_edge_density": 0.013,
-        "chamfer": 0.033308,
-        "score": -0.070412
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_057780",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_057780_recon_noisy.stl",
-    "strategy": "alpha_0.060",
-    "triangles": 6420,
-    "vertices": 3210,
-    "watertight": true,
-    "edge_manifold": true,
-    "long_edge_density": 0.0192,
-    "boundary_edges": 0,
-    "chamfer": 0.039348,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 15221,
-        "long_edge_density": 0.0,
-        "chamfer": 0.058362,
-        "score": -0.067052
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 15218,
-        "long_edge_density": 0.0,
-        "chamfer": 0.057922,
-        "score": -0.066878
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 15217,
-        "long_edge_density": 0.0,
-        "chamfer": 0.058361,
-        "score": -0.067448
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 15219,
-        "long_edge_density": 0.0,
-        "chamfer": 0.058218,
-        "score": -0.066875
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 2658,
-        "long_edge_density": 0.0824,
-        "chamfer": 0.159738,
-        "score": -0.475958
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 7352,
-        "long_edge_density": 0.0167,
-        "chamfer": 0.039425,
-        "score": -0.06812
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 6420,
-        "long_edge_density": 0.0192,
-        "chamfer": 0.039431,
-        "score": -0.064417
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 5458,
-        "long_edge_density": 0.0261,
-        "chamfer": 0.040694,
-        "score": -0.075003
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 4067,
-        "long_edge_density": 0.0,
-        "chamfer": 0.076193,
-        "score": -0.132415
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 7059,
-        "long_edge_density": 0.0029,
-        "chamfer": 0.035334,
-        "score": -0.108076
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 4272,
-        "long_edge_density": 0.013,
-        "chamfer": 0.072365,
-        "score": -0.151761
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 3999,
-        "long_edge_density": 0.0132,
-        "chamfer": 0.077113,
-        "score": -0.140258
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_067626",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_067626_recon_noisy.stl",
-    "strategy": "poisson_d10",
-    "triangles": 11532,
-    "vertices": 5872,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 222,
-    "chamfer": 0.033941,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 11532,
-        "long_edge_density": 0.0,
-        "chamfer": 0.033951,
-        "score": -0.034988
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 11532,
-        "long_edge_density": 0.0,
-        "chamfer": 0.034083,
-        "score": -0.035319
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 11532,
-        "long_edge_density": 0.0,
-        "chamfer": 0.03396,
-        "score": -0.03509
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 11532,
-        "long_edge_density": 0.0,
-        "chamfer": 0.034355,
-        "score": -0.035213
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 4314,
-        "long_edge_density": 0.0232,
-        "chamfer": 0.084511,
-        "score": -0.274246
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 6954,
-        "long_edge_density": 0.0362,
-        "chamfer": 0.037247,
-        "score": -0.137099
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 6144,
-        "long_edge_density": 0.0576,
-        "chamfer": 0.043339,
-        "score": -0.158869
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 4836,
-        "long_edge_density": 0.0644,
-        "chamfer": 0.051777,
-        "score": -0.15431
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7321,
-        "long_edge_density": 0.0,
-        "chamfer": 0.033732,
-        "score": -0.058866
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 7341,
-        "long_edge_density": 0.0029,
-        "chamfer": 0.033419,
-        "score": -0.058901
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 7107,
-        "long_edge_density": 0.0031,
-        "chamfer": 0.033827,
-        "score": -0.058933
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 6577,
-        "long_edge_density": 0.013,
-        "chamfer": 0.037128,
-        "score": -0.074016
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_081740",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_081740_recon_noisy.stl",
-    "strategy": "poisson_d9",
-    "triangles": 20132,
-    "vertices": 10308,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 538,
-    "chamfer": 0.057035,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 20134,
-        "long_edge_density": 0.0,
-        "chamfer": 0.057667,
-        "score": -0.071528
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 20132,
-        "long_edge_density": 0.0,
-        "chamfer": 0.056941,
-        "score": -0.071135
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 20135,
-        "long_edge_density": 0.0,
-        "chamfer": 0.057607,
-        "score": -0.071298
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 20137,
-        "long_edge_density": 0.0,
-        "chamfer": 0.057127,
-        "score": -0.071302
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 605,
-        "long_edge_density": 0.0,
-        "chamfer": 0.788858,
-        "score": -0.877552
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 2341,
-        "long_edge_density": 0.058,
-        "chamfer": 0.319171,
-        "score": -0.494682
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 5815,
-        "long_edge_density": 0.0986,
-        "chamfer": 0.093689,
-        "score": -0.369006
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 7571,
-        "long_edge_density": 0.0686,
-        "chamfer": 0.080368,
-        "score": -0.299358
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 6519,
-        "long_edge_density": 0.0,
-        "chamfer": 0.0494,
-        "score": -0.239816
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 6439,
-        "long_edge_density": 0.002,
-        "chamfer": 0.051424,
-        "score": -0.232704
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 6297,
-        "long_edge_density": 0.004,
-        "chamfer": 0.053374,
-        "score": -0.230697
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 5721,
-        "long_edge_density": 0.0249,
-        "chamfer": 0.063575,
-        "score": -0.267131
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_026528",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_026528_recon_noisy.stl",
-    "strategy": "poisson_d11",
-    "triangles": 18714,
-    "vertices": 9580,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 474,
-    "chamfer": 0.056494,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 18713,
-        "long_edge_density": 0.0,
-        "chamfer": 0.056011,
-        "score": -0.067595
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 18712,
-        "long_edge_density": 0.0,
-        "chamfer": 0.055966,
-        "score": -0.068078
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 18713,
-        "long_edge_density": 0.0,
-        "chamfer": 0.056331,
-        "score": -0.067991
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 18714,
-        "long_edge_density": 0.0,
-        "chamfer": 0.055986,
-        "score": -0.068185
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 285,
-        "long_edge_density": 0.0,
-        "chamfer": 1.018867,
-        "score": -1.068482
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 625,
-        "long_edge_density": 0.11,
-        "chamfer": 0.804022,
-        "score": -1.087196
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 3437,
-        "long_edge_density": 0.09,
-        "chamfer": 0.210457,
-        "score": -0.507714
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 7494,
-        "long_edge_density": 0.0564,
-        "chamfer": 0.078335,
-        "score": -0.325442
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 6574,
-        "long_edge_density": 0.0,
-        "chamfer": 0.051693,
-        "score": -0.200626
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 6623,
-        "long_edge_density": 0.0025,
-        "chamfer": 0.052416,
-        "score": -0.198347
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 6551,
-        "long_edge_density": 0.0042,
-        "chamfer": 0.054359,
-        "score": -0.198434
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 3882,
-        "long_edge_density": 0.0074,
-        "chamfer": 0.224138,
-        "score": -0.395311
-      }
-    ]
-  },
-  {
-    "sample_id": "deepcadimg_014849",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_014849_recon_noisy.stl",
-    "strategy": "poisson_d10",
-    "triangles": 14993,
-    "vertices": 7630,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 277,
-    "chamfer": 0.037467,
-    "candidates_evaluated": 12,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d8",
-        "triangles": 14993,
-        "long_edge_density": 0.0,
-        "chamfer": 0.037624,
-        "score": -0.041812
-      },
-      {
-        "strategy": "poisson_d9",
-        "triangles": 14992,
-        "long_edge_density": 0.0,
-        "chamfer": 0.037629,
-        "score": -0.04186
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 14993,
-        "long_edge_density": 0.0,
-        "chamfer": 0.037315,
-        "score": -0.041682
-      },
-      {
-        "strategy": "poisson_d11",
-        "triangles": 14993,
-        "long_edge_density": 0.0,
-        "chamfer": 0.037473,
-        "score": -0.041639
-      },
-      {
-        "strategy": "alpha_0.025",
-        "triangles": 121,
-        "long_edge_density": 0.0,
-        "chamfer": 1.050985,
-        "score": -1.164134
-      },
-      {
-        "strategy": "alpha_0.040",
-        "triangles": 521,
-        "long_edge_density": 0.0,
-        "chamfer": 0.579866,
-        "score": -0.865073
-      },
-      {
-        "strategy": "alpha_0.060",
-        "triangles": 8258,
-        "long_edge_density": 0.0226,
-        "chamfer": 0.044785,
-        "score": -0.316053
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 8833,
-        "long_edge_density": 0.0241,
-        "chamfer": 0.047465,
-        "score": -0.21773
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7790,
-        "long_edge_density": 0.0,
-        "chamfer": 0.035805,
-        "score": -0.060652
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 7923,
-        "long_edge_density": 0.0033,
-        "chamfer": 0.035594,
-        "score": -0.06208
-      },
-      {
-        "strategy": "bp_2.0",
-        "triangles": 7938,
-        "long_edge_density": 0.0084,
-        "chamfer": 0.037563,
-        "score": -0.06745
-      },
-      {
-        "strategy": "bp_2.8",
-        "triangles": 7754,
-        "long_edge_density": 0.0106,
-        "chamfer": 0.038362,
-        "score": -0.070008
-      }
-    ]
   }
 ]
