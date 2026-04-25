@@ -13,9 +13,23 @@ Steps, in order:
     5. Side-by-side comparison PNG (original vs reconstructed)
     6. Summary
 
-Outputs are written to ``backend/outputs/`` (the project's existing
-artifact dir, which is gitignored) rather than the spec's plain
-``outputs/`` so they live alongside the rest of the pipeline output.
+Outputs are written to ``backend/outputs/`` and prefixed with
+``base_<input-stem>_`` so each run keeps its own artifacts. The stem is
+the grid PNG's filename with the trailing ``_grid`` stripped, so
+``deepcadimg_061490_grid.png`` produces:
+
+    base_deepcadimg_061490.stl
+    base_deepcadimg_061490.step
+    base_deepcadimg_061490_recon_grid.png
+    base_deepcadimg_061490_comparison.png
+    base_deepcadimg_061490_generated.py
+    base_deepcadimg_061490_pass1.stl       (only with --refine)
+    base_deepcadimg_061490_pass1_recon_grid.png
+    base_deepcadimg_061490_pass1_generated.py
+
+Naming is parallel to ``sketch_roundtrip.py`` (``sketch_<stem>_*``)
+and ``face_roundtrip.py`` (``face_<stem>_*``) so the three pipelines
+can be compared side-by-side.
 
 Flags:
     --refine   After the first pass, if Claude reports anything other
@@ -39,6 +53,7 @@ import os
 import subprocess
 import sys
 import traceback
+from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -57,17 +72,58 @@ from backend.pipeline.stl_renderer import render_stl_to_grid  # noqa: E402
 
 
 OUTPUT_DIR = REPO_ROOT / "backend" / "outputs"
-STL_PATH = OUTPUT_DIR / "roundtrip.stl"
-STEP_PATH = OUTPUT_DIR / "roundtrip.step"
-GRID_PATH = OUTPUT_DIR / "roundtrip_grid.png"
-COMPARISON_PATH = OUTPUT_DIR / "comparison.png"
-GENERATED_CODE_PATH = OUTPUT_DIR / "roundtrip_generated.py"
 
-# First-pass artifacts kept around when refinement runs, so you can see
-# what the model corrected. Overwritten each --refine run.
-PASS1_STL_PATH = OUTPUT_DIR / "roundtrip_pass1.stl"
-PASS1_GRID_PATH = OUTPUT_DIR / "roundtrip_pass1_grid.png"
-PASS1_CODE_PATH = OUTPUT_DIR / "roundtrip_pass1_generated.py"
+
+def _stem_from_grid_path(image_path: Path) -> str:
+    """Strip the trailing ``_grid`` so a 6-view grid PNG named
+    ``foo_grid.png`` produces output prefix ``base_foo_*``."""
+    stem = image_path.stem
+    if stem.endswith("_grid"):
+        stem = stem[: -len("_grid")]
+    return stem
+
+
+@dataclass(frozen=True)
+class RunPaths:
+    """All artifact paths for a single roundtrip_demo run, derived from
+    the input grid stem so concurrent / sequential runs never overwrite.
+
+    First-pass artifacts (``pass1_*``) are stashed alongside the final
+    artifacts when ``--refine`` runs, so you can diff what Claude
+    corrected after seeing the reconstruction.
+    """
+
+    part_id: str
+    stl: Path
+    step: Path
+    recon_grid: Path
+    comparison: Path
+    generated_code: Path
+    pass1_stl: Path
+    pass1_recon_grid: Path
+    pass1_generated_code: Path
+
+    @classmethod
+    def for_stem(cls, stem: str) -> "RunPaths":
+        prefix = OUTPUT_DIR / f"base_{stem}"
+        return cls(
+            part_id=stem,
+            stl=prefix.with_suffix(".stl"),
+            step=prefix.with_suffix(".step"),
+            recon_grid=Path(f"{prefix}_recon_grid.png"),
+            comparison=Path(f"{prefix}_comparison.png"),
+            generated_code=Path(f"{prefix}_generated.py"),
+            pass1_stl=Path(f"{prefix}_pass1.stl"),
+            pass1_recon_grid=Path(f"{prefix}_pass1_recon_grid.png"),
+            pass1_generated_code=Path(f"{prefix}_pass1_generated.py"),
+        )
+
+    def all_paths(self) -> tuple[Path, ...]:
+        return (
+            self.stl, self.step, self.recon_grid, self.comparison,
+            self.generated_code,
+            self.pass1_stl, self.pass1_recon_grid, self.pass1_generated_code,
+        )
 
 EXEC_TIMEOUT_SECONDS = 15
 
@@ -217,20 +273,20 @@ def _draw_label_bar(
     draw.text((x + 10, ty), text, fill=LABEL_FG, font=font)
 
 
-def step5_compare(original_path: Path, render_ok: bool) -> bool:
+def step5_compare(original_path: Path, render_ok: bool, paths: RunPaths) -> bool:
     _print_header("Step 5 — Side-by-side comparison")
-    if not render_ok or not GRID_PATH.exists():
+    if not render_ok or not paths.recon_grid.exists():
         print("Skipping comparison: reconstructed grid is missing.")
         return False
 
     left = Image.open(original_path).convert("RGB")
-    right = Image.open(GRID_PATH).convert("RGB")
+    right = Image.open(paths.recon_grid).convert("RGB")
     target_h = min(left.height, right.height)
     left = _resize_to_h(left, target_h)
     right = _resize_to_h(right, target_h)
 
     label_left = f"ORIGINAL — {original_path.name}"
-    label_right = "RECONSTRUCTED — roundtrip.stl"
+    label_right = f"RECONSTRUCTED — {paths.stl.name}"
 
     total_w = left.width + DIVIDER_WIDTH + right.width
     total_h = LABEL_BAR_HEIGHT + target_h
@@ -248,9 +304,9 @@ def step5_compare(original_path: Path, render_ok: bool) -> bool:
         left.width + DIVIDER_WIDTH, right.width, label_right,
     )
 
-    canvas.save(COMPARISON_PATH)
+    canvas.save(paths.comparison)
     print(
-        f"Wrote: {COMPARISON_PATH.relative_to(REPO_ROOT)} "
+        f"Wrote: {paths.comparison.relative_to(REPO_ROOT)} "
         f"({canvas.width}x{canvas.height})"
     )
     return True
@@ -264,10 +320,7 @@ def _find_original_stl(image_path: Path) -> Path | None:
     artifact directories. Returns ``None`` if no candidate exists,
     which is fine — the caller just skips opening it.
     """
-    stem = image_path.stem
-    if stem.endswith("_grid"):
-        stem = stem[: -len("_grid")]
-
+    stem = _stem_from_grid_path(image_path)
     candidate_dirs = [
         REPO_ROOT / "backend" / "outputs" / "deepcad_selected_stl",
         REPO_ROOT / "backend" / "outputs",
@@ -280,7 +333,7 @@ def _find_original_stl(image_path: Path) -> Path | None:
     return None
 
 
-def open_artifacts(original_image_path: Path) -> None:
+def open_artifacts(original_image_path: Path, paths: RunPaths) -> None:
     """Open the comparison PNG and launch view3d for the two STLs.
 
     macOS ``open`` is used for the PNG so it lands in Preview. The
@@ -290,15 +343,15 @@ def open_artifacts(original_image_path: Path) -> None:
     """
     _print_header("Open artifacts")
 
-    if COMPARISON_PATH.exists() and sys.platform == "darwin":
-        print(f"Opening comparison PNG: {COMPARISON_PATH.relative_to(REPO_ROOT)}")
+    if paths.comparison.exists() and sys.platform == "darwin":
+        print(f"Opening comparison PNG: {paths.comparison.relative_to(REPO_ROOT)}")
         subprocess.Popen(
-            ["open", str(COMPARISON_PATH)],
+            ["open", str(paths.comparison)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-    elif COMPARISON_PATH.exists():
+    elif paths.comparison.exists():
         print(
-            f"Comparison PNG ready: {COMPARISON_PATH.relative_to(REPO_ROOT)} "
+            f"Comparison PNG ready: {paths.comparison.relative_to(REPO_ROOT)} "
             "(auto-open is macOS-only; open it manually)"
         )
 
@@ -323,10 +376,10 @@ def open_artifacts(original_image_path: Path) -> None:
             "(searched backend/outputs/deepcad_selected_stl, backend/outputs, backend/sample_data)."
         )
 
-    if STL_PATH.exists():
-        print(f"Launching view3d on RECONSTRUCTION: {STL_PATH.relative_to(REPO_ROOT)}")
+    if paths.stl.exists():
+        print(f"Launching view3d on RECONSTRUCTION: {paths.stl.relative_to(REPO_ROOT)}")
         subprocess.Popen(
-            [sys.executable, str(view3d_script), str(STL_PATH)],
+            [sys.executable, str(view3d_script), str(paths.stl)],
             env=env, **popen_kwargs,
         )
     else:
@@ -334,7 +387,9 @@ def open_artifacts(original_image_path: Path) -> None:
 
 
 def step6_summary(
-    results: dict[str, bool], final_part: PartDescription | None,
+    results: dict[str, bool],
+    final_part: PartDescription | None,
+    paths: RunPaths,
 ) -> None:
     _print_header("Step 6 — Summary")
     for name, ok in results.items():
@@ -346,11 +401,7 @@ def step6_summary(
             print(f"  Final notes: {final_part.notes!r}")
     print()
     print("Artifacts:")
-    for path in (
-        STL_PATH, STEP_PATH, GRID_PATH, COMPARISON_PATH,
-        GENERATED_CODE_PATH,
-        PASS1_STL_PATH, PASS1_GRID_PATH, PASS1_CODE_PATH,
-    ):
+    for path in paths.all_paths():
         if path.exists():
             print(f"  {path.relative_to(REPO_ROOT)}")
 
@@ -392,6 +443,9 @@ def main(argv: list[str]) -> int:
         return 2
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    paths = RunPaths.for_stem(_stem_from_grid_path(image_path))
+    print(f"[info] artifacts will be written under "
+          f"{OUTPUT_DIR.relative_to(REPO_ROOT)}/base_{paths.part_id}_*")
     results: dict[str, bool] = {}
     final_part: PartDescription | None = None
 
@@ -411,8 +465,8 @@ def main(argv: list[str]) -> int:
     try:
         _, render_ok = build_and_render(
             part,
-            stl_path=STL_PATH, step_path=STEP_PATH,
-            grid_path=GRID_PATH, code_path=GENERATED_CODE_PATH,
+            stl_path=paths.stl, step_path=paths.step,
+            grid_path=paths.recon_grid, code_path=paths.generated_code,
             label="Steps 2-4",
         )
         results["2. build code"] = True
@@ -422,7 +476,7 @@ def main(argv: list[str]) -> int:
         results["2. build code"] = True
         results["3. execute cadquery"] = False
         results["4. render reconstruction"] = False
-        step6_summary(results, part)
+        step6_summary(results, part, paths)
         return 1
 
     final_part = part
@@ -435,9 +489,9 @@ def main(argv: list[str]) -> int:
             _print_header("Step 4b — Refinement skipped (no reconstruction grid to compare)")
         else:
             # Stash the first-pass artifacts before they get overwritten.
-            STL_PATH.replace(PASS1_STL_PATH)
-            GRID_PATH.replace(PASS1_GRID_PATH)
-            GENERATED_CODE_PATH.replace(PASS1_CODE_PATH)
+            paths.stl.replace(paths.pass1_stl)
+            paths.recon_grid.replace(paths.pass1_recon_grid)
+            paths.generated_code.replace(paths.pass1_generated_code)
 
             _print_header(
                 f"Step 4b — Refinement pass (initial confidence={part.confidence})"
@@ -445,16 +499,16 @@ def main(argv: list[str]) -> int:
             try:
                 refined = call_claude_refine(
                     original_image_path=str(image_path),
-                    reconstruction_image_path=str(PASS1_GRID_PATH),
+                    reconstruction_image_path=str(paths.pass1_recon_grid),
                     current=part,
                 )
             except Exception as exc:
                 print(f"Refinement FAILED (keeping first pass): {exc}", file=sys.stderr)
                 traceback.print_exc()
                 # Restore first-pass outputs so the comparison still has data.
-                PASS1_STL_PATH.replace(STL_PATH)
-                PASS1_GRID_PATH.replace(GRID_PATH)
-                PASS1_CODE_PATH.replace(GENERATED_CODE_PATH)
+                paths.pass1_stl.replace(paths.stl)
+                paths.pass1_recon_grid.replace(paths.recon_grid)
+                paths.pass1_generated_code.replace(paths.generated_code)
                 results["4b. refine"] = False
             else:
                 _print_header("Step 4b — Refined PartDescription")
@@ -466,8 +520,8 @@ def main(argv: list[str]) -> int:
                 try:
                     _, render_ok = build_and_render(
                         refined,
-                        stl_path=STL_PATH, step_path=STEP_PATH,
-                        grid_path=GRID_PATH, code_path=GENERATED_CODE_PATH,
+                        stl_path=paths.stl, step_path=paths.step,
+                        grid_path=paths.recon_grid, code_path=paths.generated_code,
                         label="Steps 2-4 (refined)",
                     )
                     results["4c. rebuild+render (refined)"] = render_ok
@@ -477,22 +531,22 @@ def main(argv: list[str]) -> int:
                         "Refined code failed to build; restoring first-pass artifacts.",
                         file=sys.stderr,
                     )
-                    PASS1_STL_PATH.replace(STL_PATH)
-                    PASS1_GRID_PATH.replace(GRID_PATH)
-                    PASS1_CODE_PATH.replace(GENERATED_CODE_PATH)
+                    paths.pass1_stl.replace(paths.stl)
+                    paths.pass1_recon_grid.replace(paths.recon_grid)
+                    paths.pass1_generated_code.replace(paths.generated_code)
                     results["4c. rebuild+render (refined)"] = False
                     final_part = part
 
     # ------- Step 5: comparison -------
-    compare_ok = step5_compare(image_path, render_ok)
+    compare_ok = step5_compare(image_path, render_ok, paths)
     results["5. compare"] = compare_ok
 
     # ------- Step 6: summary -------
-    step6_summary(results, final_part)
+    step6_summary(results, final_part, paths)
 
     # ------- Optional: open comparison + viewers -------
     if args.open_artifacts:
-        open_artifacts(image_path)
+        open_artifacts(image_path, paths)
 
     if args.strict and final_part is not None and final_part.confidence != "high":
         print(

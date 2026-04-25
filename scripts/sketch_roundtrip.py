@@ -14,9 +14,20 @@ sketch pipeline:
     6. Side-by-side comparison PNG (original vs reconstructed).
     7. Summary.
 
-All output filenames are prefixed with ``sketch_`` so this script can
-be run alongside the original ``roundtrip_demo.py`` without trampling
-its artifacts. Designed for an A/B comparison of the two architectures.
+All output filenames are prefixed with ``sketch_<input-stem>_`` so each
+run keeps its own artifacts. The stem is the grid PNG's filename with
+the trailing ``_grid`` stripped, so ``deepcadimg_000017_grid.png``
+produces:
+
+    sketch_deepcadimg_000017.stl
+    sketch_deepcadimg_000017.step
+    sketch_deepcadimg_000017_recon_grid.png
+    sketch_deepcadimg_000017_comparison.png
+    sketch_deepcadimg_000017_generated.py
+    sketch_deepcadimg_000017_contours.txt
+
+This naming aligns 1:1 with ``face_roundtrip.py`` (which uses
+``face_<stem>_*``) so the two pipelines are trivial to A/B compare.
 
 Usage:
     python scripts/sketch_roundtrip.py path/to/grid.png [--strict] [--open]
@@ -29,6 +40,7 @@ import os
 import subprocess
 import sys
 import traceback
+from dataclasses import dataclass
 from pathlib import Path
 
 import pyvista as pv
@@ -75,12 +87,50 @@ def _normalised_bounds_mm(stl_path: Path) -> tuple[float, float, float, float, f
 
 
 OUTPUT_DIR = REPO_ROOT / "backend" / "outputs"
-STL_PATH = OUTPUT_DIR / "sketch_roundtrip.stl"
-STEP_PATH = OUTPUT_DIR / "sketch_roundtrip.step"
-GRID_PATH = OUTPUT_DIR / "sketch_roundtrip_grid.png"
-COMPARISON_PATH = OUTPUT_DIR / "sketch_comparison.png"
-GENERATED_CODE_PATH = OUTPUT_DIR / "sketch_roundtrip_generated.py"
-CONTOUR_SUMMARY_PATH = OUTPUT_DIR / "sketch_roundtrip_contours.txt"
+
+
+def _stem_from_grid_path(image_path: Path) -> str:
+    """Strip the trailing ``_grid`` so a 6-view grid PNG named
+    ``foo_grid.png`` produces output prefix ``sketch_foo_*``."""
+    stem = image_path.stem
+    if stem.endswith("_grid"):
+        stem = stem[: -len("_grid")]
+    return stem
+
+
+@dataclass(frozen=True)
+class RunPaths:
+    """All artifact paths for a single sketch_roundtrip run, derived
+    from the input grid stem so concurrent / sequential runs never
+    overwrite."""
+
+    part_id: str
+    stl: Path
+    step: Path
+    recon_grid: Path
+    comparison: Path
+    generated_code: Path
+    contour_summary: Path
+
+    @classmethod
+    def for_stem(cls, stem: str) -> "RunPaths":
+        prefix = OUTPUT_DIR / f"sketch_{stem}"
+        return cls(
+            part_id=stem,
+            stl=prefix.with_suffix(".stl"),
+            step=prefix.with_suffix(".step"),
+            recon_grid=Path(f"{prefix}_recon_grid.png"),
+            comparison=Path(f"{prefix}_comparison.png"),
+            generated_code=Path(f"{prefix}_generated.py"),
+            contour_summary=Path(f"{prefix}_contours.txt"),
+        )
+
+    def all_paths(self) -> tuple[Path, ...]:
+        return (
+            self.stl, self.step, self.recon_grid, self.comparison,
+            self.generated_code, self.contour_summary,
+        )
+
 
 EXEC_TIMEOUT_SECONDS = 15
 
@@ -141,25 +191,25 @@ def _print_sketch_summary(part: SketchPartDescription) -> None:
 # ---------------------------------------------------------------------------
 # Build / execute / render
 # ---------------------------------------------------------------------------
-def build_and_render(part: SketchPartDescription) -> tuple[str, bool]:
+def build_and_render(part: SketchPartDescription, paths: RunPaths) -> tuple[str, bool]:
     _print_header("Steps 3-5 — Build CadQuery code")
     code = build_from_sketches(part)
     print(code)
-    GENERATED_CODE_PATH.write_text(code)
-    print(f"(saved to {GENERATED_CODE_PATH.relative_to(REPO_ROOT)})")
+    paths.generated_code.write_text(code)
+    print(f"(saved to {paths.generated_code.relative_to(REPO_ROOT)})")
 
     _print_header("Steps 3-5 — Execute CadQuery in subprocess")
     wrapper = (
         code
         + "\n"
-        + f"result.val().exportStep({str(STEP_PATH)!r})\n"
-        + f"cq.exporters.export(result, {str(STL_PATH)!r})\n"
+        + f"result.val().exportStep({str(paths.step)!r})\n"
+        + f"cq.exporters.export(result, {str(paths.stl)!r})\n"
     )
 
-    if STL_PATH.exists():
-        STL_PATH.unlink()
-    if STEP_PATH.exists():
-        STEP_PATH.unlink()
+    if paths.stl.exists():
+        paths.stl.unlink()
+    if paths.step.exists():
+        paths.step.unlink()
 
     proc = subprocess.run(
         [sys.executable, "-c", wrapper],
@@ -169,7 +219,7 @@ def build_and_render(part: SketchPartDescription) -> tuple[str, bool]:
         cwd=str(REPO_ROOT),
     )
 
-    if proc.returncode != 0 or not STL_PATH.exists():
+    if proc.returncode != 0 or not paths.stl.exists():
         print("CadQuery execution FAILED.", file=sys.stderr)
         if proc.stdout:
             print("--- stdout ---", file=sys.stderr)
@@ -180,18 +230,18 @@ def build_and_render(part: SketchPartDescription) -> tuple[str, bool]:
         raise SystemExit(1)
 
     print(
-        f"STL written: {STL_PATH.relative_to(REPO_ROOT)} "
-        f"({STL_PATH.stat().st_size} bytes)"
+        f"STL written: {paths.stl.relative_to(REPO_ROOT)} "
+        f"({paths.stl.stat().st_size} bytes)"
     )
     print(
-        f"STEP written: {STEP_PATH.relative_to(REPO_ROOT)} "
-        f"({STEP_PATH.stat().st_size} bytes)"
+        f"STEP written: {paths.step.relative_to(REPO_ROOT)} "
+        f"({paths.step.stat().st_size} bytes)"
     )
 
     _print_header("Steps 3-5 — Render reconstructed STL")
     try:
-        render_stl_to_grid(STL_PATH, GRID_PATH, part_id=STL_PATH.stem)
-        print(f"Rendered grid: {GRID_PATH.relative_to(REPO_ROOT)}")
+        render_stl_to_grid(paths.stl, paths.recon_grid, part_id=paths.stl.stem)
+        print(f"Rendered grid: {paths.recon_grid.relative_to(REPO_ROOT)}")
         return code, True
     except Exception as exc:
         print(f"Rendering FAILED (continuing): {exc}", file=sys.stderr)
@@ -221,20 +271,20 @@ def _draw_label_bar(
     draw.text((x + 10, ty), text, fill=LABEL_FG, font=font)
 
 
-def step_compare(original_path: Path, render_ok: bool) -> bool:
+def step_compare(original_path: Path, render_ok: bool, paths: RunPaths) -> bool:
     _print_header("Step 6 — Side-by-side comparison")
-    if not render_ok or not GRID_PATH.exists():
+    if not render_ok or not paths.recon_grid.exists():
         print("Skipping comparison: reconstructed grid is missing.")
         return False
 
     left = Image.open(original_path).convert("RGB")
-    right = Image.open(GRID_PATH).convert("RGB")
+    right = Image.open(paths.recon_grid).convert("RGB")
     target_h = min(left.height, right.height)
     left = _resize_to_h(left, target_h)
     right = _resize_to_h(right, target_h)
 
     label_left = f"ORIGINAL — {original_path.name}"
-    label_right = "SKETCH RECONSTRUCTION — sketch_roundtrip.stl"
+    label_right = f"SKETCH RECONSTRUCTION — {paths.stl.name}"
 
     total_w = left.width + DIVIDER_WIDTH + right.width
     total_h = LABEL_BAR_HEIGHT + target_h
@@ -252,9 +302,9 @@ def step_compare(original_path: Path, render_ok: bool) -> bool:
         left.width + DIVIDER_WIDTH, right.width, label_right,
     )
 
-    canvas.save(COMPARISON_PATH)
+    canvas.save(paths.comparison)
     print(
-        f"Wrote: {COMPARISON_PATH.relative_to(REPO_ROOT)} "
+        f"Wrote: {paths.comparison.relative_to(REPO_ROOT)} "
         f"({canvas.width}x{canvas.height})"
     )
     return True
@@ -264,9 +314,7 @@ def step_compare(original_path: Path, render_ok: bool) -> bool:
 # Optional: open the comparison + 3D viewers (mirrors roundtrip_demo)
 # ---------------------------------------------------------------------------
 def _find_original_stl(image_path: Path) -> Path | None:
-    stem = image_path.stem
-    if stem.endswith("_grid"):
-        stem = stem[: -len("_grid")]
+    stem = _stem_from_grid_path(image_path)
     candidate_dirs = [
         REPO_ROOT / "backend" / "outputs" / "deepcad_selected_stl",
         REPO_ROOT / "backend" / "outputs",
@@ -279,22 +327,22 @@ def _find_original_stl(image_path: Path) -> Path | None:
     return None
 
 
-def open_artifacts(original_image_path: Path) -> None:
+def open_artifacts(original_image_path: Path, paths: RunPaths) -> None:
     _print_header("Open artifacts")
 
-    if COMPARISON_PATH.exists() and sys.platform == "darwin":
+    if paths.comparison.exists() and sys.platform == "darwin":
         print(
             f"Opening sketch comparison PNG: "
-            f"{COMPARISON_PATH.relative_to(REPO_ROOT)}"
+            f"{paths.comparison.relative_to(REPO_ROOT)}"
         )
         subprocess.Popen(
-            ["open", str(COMPARISON_PATH)],
+            ["open", str(paths.comparison)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-    elif COMPARISON_PATH.exists():
+    elif paths.comparison.exists():
         print(
             f"Sketch comparison PNG ready: "
-            f"{COMPARISON_PATH.relative_to(REPO_ROOT)}"
+            f"{paths.comparison.relative_to(REPO_ROOT)}"
         )
 
     view3d_script = REPO_ROOT / "scripts" / "view3d.py"
@@ -313,16 +361,21 @@ def open_artifacts(original_image_path: Path) -> None:
             env=env, **popen_kwargs,
         )
 
-    if STL_PATH.exists():
-        print(f"Launching view3d on SKETCH RECONSTRUCTION: {STL_PATH.relative_to(REPO_ROOT)}")
+    if paths.stl.exists():
+        print(
+            f"Launching view3d on SKETCH RECONSTRUCTION: "
+            f"{paths.stl.relative_to(REPO_ROOT)}"
+        )
         subprocess.Popen(
-            [sys.executable, str(view3d_script), str(STL_PATH)],
+            [sys.executable, str(view3d_script), str(paths.stl)],
             env=env, **popen_kwargs,
         )
 
 
 def step_summary(
-    results: dict[str, bool], final_part: SketchPartDescription | None,
+    results: dict[str, bool],
+    final_part: SketchPartDescription | None,
+    paths: RunPaths,
 ) -> None:
     _print_header("Step 7 — Summary")
     for name, ok in results.items():
@@ -334,10 +387,7 @@ def step_summary(
             print(f"  Final notes: {final_part.notes!r}")
     print()
     print("Artifacts:")
-    for path in (
-        STL_PATH, STEP_PATH, GRID_PATH, COMPARISON_PATH,
-        GENERATED_CODE_PATH, CONTOUR_SUMMARY_PATH,
-    ):
+    for path in paths.all_paths():
         if path.exists():
             print(f"  {path.relative_to(REPO_ROOT)}")
 
@@ -370,6 +420,9 @@ def main(argv: list[str]) -> int:
         return 2
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    paths = RunPaths.for_stem(_stem_from_grid_path(image_path))
+    print(f"[info] artifacts will be written under "
+          f"{OUTPUT_DIR.relative_to(REPO_ROOT)}/sketch_{paths.part_id}_*")
     results: dict[str, bool] = {}
     final_part: SketchPartDescription | None = None
 
@@ -403,8 +456,8 @@ def main(argv: list[str]) -> int:
         contours = extract_all_views(str(image_path), mesh_bounds_mm=bounds_mm)
         summary = summarise_contours(contours)
         print(summary)
-        CONTOUR_SUMMARY_PATH.write_text(summary + "\n")
-        print(f"\n(saved to {CONTOUR_SUMMARY_PATH.relative_to(REPO_ROOT)})")
+        paths.contour_summary.write_text(summary + "\n")
+        print(f"\n(saved to {paths.contour_summary.relative_to(REPO_ROOT)})")
         results["1. opencv contours"] = True
     except Exception as exc:
         print(f"Step 1 (opencv) FAILED: {exc}", file=sys.stderr)
@@ -426,7 +479,7 @@ def main(argv: list[str]) -> int:
 
     # ------- Steps 3-5: build, execute, render -------
     try:
-        build_and_render(part)
+        build_and_render(part, paths)
         results["3. build code"] = True
         results["4. execute cadquery"] = True
         results["5. render reconstruction"] = True
@@ -435,18 +488,18 @@ def main(argv: list[str]) -> int:
         results["3. build code"] = True
         results["4. execute cadquery"] = False
         results["5. render reconstruction"] = False
-        step_summary(results, final_part)
+        step_summary(results, final_part, paths)
         return 1
 
     # ------- Step 6: comparison -------
-    compare_ok = step_compare(image_path, render_ok)
+    compare_ok = step_compare(image_path, render_ok, paths)
     results["6. compare"] = compare_ok
 
     # ------- Step 7: summary -------
-    step_summary(results, final_part)
+    step_summary(results, final_part, paths)
 
     if args.open_artifacts:
-        open_artifacts(image_path)
+        open_artifacts(image_path, paths)
 
     if args.strict and final_part is not None and final_part.confidence != "high":
         print(

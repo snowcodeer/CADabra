@@ -4,7 +4,9 @@ Reads the two existing comparison artifacts and stacks them with
 labels so the user can see the head-to-head verdict in one image.
 
 Usage:
-    python scripts/build_face_vs_sketch_comparison.py [output_path]
+    python scripts/build_face_vs_sketch_comparison.py <stem> [output_path]
+
+    e.g.  python scripts/build_face_vs_sketch_comparison.py deepcadimg_061490
 """
 
 from __future__ import annotations
@@ -42,12 +44,16 @@ def _scaled(img: Image.Image, width: int) -> Image.Image:
     return img.resize((width, h), Image.LANCZOS)
 
 
-def main(out: Path) -> None:
-    face = Image.open(OUT_DIR / "face_comparison.png").convert("RGB")
-    sketch = Image.open(OUT_DIR / "sketch_comparison.png").convert("RGB")
+def main(stem: str, out: Path) -> None:
+    face_path = OUT_DIR / f"face_{stem}_comparison.png"
+    sketch_path = OUT_DIR / f"sketch_{stem}_comparison.png"
+    if not face_path.exists():
+        raise SystemExit(f"missing {face_path}")
+    if not sketch_path.exists():
+        raise SystemExit(f"missing {sketch_path}")
 
-    face = _scaled(face, TARGET_WIDTH)
-    sketch = _scaled(sketch, TARGET_WIDTH)
+    face = _scaled(Image.open(face_path).convert("RGB"), TARGET_WIDTH)
+    sketch = _scaled(Image.open(sketch_path).convert("RGB"), TARGET_WIDTH)
 
     canvas_h = TITLE_H + ROW_HEADER_H + face.height + ROW_HEADER_H + sketch.height + PADDING * 4
     canvas = Image.new("RGB", (TARGET_WIDTH + PADDING * 2, canvas_h), "white")
@@ -58,7 +64,7 @@ def main(out: Path) -> None:
 
     draw.text(
         (PADDING, 12),
-        "deepcadimg_061490 (U-channel) — face-geometry approach vs sketch-plane approach",
+        f"{stem} — face-geometry approach vs sketch-plane approach",
         fill="black", font=title_font,
     )
 
@@ -66,8 +72,7 @@ def main(out: Path) -> None:
     draw.rectangle([0, y, canvas.width, y + ROW_HEADER_H], fill="#1a1a1a")
     draw.text(
         (PADDING, y + 8),
-        "FACE-GEOMETRY APPROACH  —  left: clean face diagram from mesh   |   right: reconstructed 6-view render   "
-        "(confidence: HIGH, notes match true U-channel topology)",
+        "FACE-GEOMETRY APPROACH  —  left: clean face diagram from mesh   |   right: reconstructed 6-view render",
         fill="white", font=row_font,
     )
     y += ROW_HEADER_H
@@ -77,8 +82,7 @@ def main(out: Path) -> None:
     draw.rectangle([0, y, canvas.width, y + ROW_HEADER_H], fill="#1a1a1a")
     draw.text(
         (PADDING, y + 8),
-        "SKETCH-PLANE APPROACH  —  left: original 6-view render   |   right: reconstructed 6-view render   "
-        "(confidence: MEDIUM, missed the pillars; reconstructed as a simple block with two holes)",
+        "SKETCH-PLANE APPROACH  —  left: original 6-view render   |   right: reconstructed 6-view render",
         fill="white", font=row_font,
     )
     y += ROW_HEADER_H
@@ -89,6 +93,9 @@ def main(out: Path) -> None:
 
 
 if __name__ == "__main__":
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else OUT_DIR / "face_vs_sketch_061490.png"
+    if len(sys.argv) < 2:
+        raise SystemExit("usage: build_face_vs_sketch_comparison.py <stem> [output_path]")
+    stem = sys.argv[1]
+    out = Path(sys.argv[2]) if len(sys.argv) > 2 else OUT_DIR / f"face_vs_sketch_{stem}.png"
     out.parent.mkdir(parents=True, exist_ok=True)
-    main(out)
+    main(stem, out)
