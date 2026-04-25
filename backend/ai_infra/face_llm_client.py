@@ -293,7 +293,43 @@ def _pick_part_description(text: str) -> dict:
     return max(parsed, key=lambda d: len(json.dumps(d)))
 
 
+def _fill_required_profile_dims(data: dict) -> dict:
+    """Fill ``width_mm`` / ``depth_mm`` for circle and polyline
+    profiles where Claude (correctly, per my prompt) emitted ``null``.
+
+    ``Profile2D`` keeps width/depth as REQUIRED non-nullable floats —
+    even for circles and polylines, where the values are derived
+    rather than primary. Rather than modify ``sketch_models.py``
+    (which is shared with the sketch-plane pipeline) we synthesise
+    sensible defaults so the same JSON schema works for both clients:
+
+      * circle  -> width = depth = diameter
+      * polyline -> width = U-bbox, depth = V-bbox of vertices
+
+    Mutates the dict in place AND returns it so callers can chain.
+    """
+    for sketch in data.get("sketches", []):
+        prof = sketch.get("profile") or {}
+        shape = prof.get("shape")
+        w, d = prof.get("width_mm"), prof.get("depth_mm")
+        if shape == "circle" and prof.get("diameter_mm") is not None:
+            if w is None:
+                prof["width_mm"] = float(prof["diameter_mm"])
+            if d is None:
+                prof["depth_mm"] = float(prof["diameter_mm"])
+        elif shape == "polyline" and prof.get("vertices"):
+            verts = prof["vertices"]
+            us = [float(v[0]) for v in verts]
+            vs = [float(v[1]) for v in verts]
+            if w is None:
+                prof["width_mm"] = max(us) - min(us)
+            if d is None:
+                prof["depth_mm"] = max(vs) - min(vs)
+    return data
+
+
 def _validate(data: dict) -> SketchPartDescription:
+    data = _fill_required_profile_dims(data)
     try:
         return SketchPartDescription(**data)
     except ValidationError as exc:
