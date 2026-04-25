@@ -7,4 +7,5 @@ backend/outputs/*
 .venv311/
 .env
 *.env
+.env.*
 !.env.example
