@@ -1,0 +1,26 @@
+[
+  {
+    "sample_id": "block",
+    "display_name": "Block",
+    "dataset_path": "train/batch_00/10.py",
+    "ground_truth_file": "block_ground_truth.py",
+    "stl_file": "block.stl",
+    "ply_file": "block.ply"
+  },
+  {
+    "sample_id": "bracket",
+    "display_name": "Bracket",
+    "dataset_path": "train/batch_00/0.py",
+    "ground_truth_file": "bracket_ground_truth.py",
+    "stl_file": "bracket.stl",
+    "ply_file": "bracket.ply"
+  },
+  {
+    "sample_id": "boss",
+    "display_name": "Boss",
+    "dataset_path": "train/batch_00/1.py",
+    "ground_truth_file": "boss_ground_truth.py",
+    "stl_file": "boss.stl",
+    "ply_file": "boss.ply"
+  }
+]

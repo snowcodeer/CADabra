@@ -1,0 +1,170 @@
+solid mesh
+  facet normal 0 0 0
+    outer loop
+      vertex 0 0 0
+      vertex 80 0 0
+      vertex 80 60 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 0 0
+      vertex 80 60 0
+      vertex 0 60 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 0 16
+      vertex 80 60 16
+      vertex 80 0 16
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 0 16
+      vertex 0 60 16
+      vertex 80 60 16
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 0 0
+      vertex 0 0 16
+      vertex 80 0 16
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 0 0
+      vertex 80 0 16
+      vertex 80 0 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 80 0 0
+      vertex 80 0 16
+      vertex 80 60 16
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 80 0 0
+      vertex 80 60 16
+      vertex 80 60 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 80 60 0
+      vertex 80 60 16
+      vertex 0 60 16
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 80 60 0
+      vertex 0 60 16
+      vertex 0 60 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 60 0
+      vertex 0 60 16
+      vertex 0 0 16
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 60 0
+      vertex 0 0 16
+      vertex 0 0 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 30 20 16
+      vertex 50 20 16
+      vertex 50 40 16
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 30 20 16
+      vertex 50 40 16
+      vertex 30 40 16
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 30 20 44
+      vertex 50 40 44
+      vertex 50 20 44
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 30 20 44
+      vertex 30 40 44
+      vertex 50 40 44
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 30 20 16
+      vertex 30 20 44
+      vertex 50 20 44
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 30 20 16
+      vertex 50 20 44
+      vertex 50 20 16
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 50 20 16
+      vertex 50 20 44
+      vertex 50 40 44
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 50 20 16
+      vertex 50 40 44
+      vertex 50 40 16
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 50 40 16
+      vertex 50 40 44
+      vertex 30 40 44
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 50 40 16
+      vertex 30 40 44
+      vertex 30 40 16
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 30 40 16
+      vertex 30 40 44
+      vertex 30 20 44
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 30 40 16
+      vertex 30 20 44
+      vertex 30 20 16
+    endloop
+  endfacet
+endsolid mesh
