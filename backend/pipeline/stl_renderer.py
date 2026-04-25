@@ -76,8 +76,24 @@ GRID_HEIGHT = CELL_HEIGHT * 2
 BORDER_WIDTH = 2
 BORDER_COLOR = (0x33, 0x33, 0x33)
 BAR_BG_COLOR = (0x1A, 0x1A, 0x1A)
+LEGEND_BG_COLOR = (0x11, 0x11, 0x11)
 LABEL_FONT_SIZE = 18
 SUB_LABEL_FONT_SIZE = 13
+HEADER_FONT_SIZE = 14
+LEGEND_FONT_SIZE = 12
+
+HEADER_HEIGHT = 40
+LEGEND_HEIGHT = 30
+HEADER_PAD_X = 16
+FULL_WIDTH = GRID_WIDTH
+FULL_HEIGHT = HEADER_HEIGHT + GRID_HEIGHT + LEGEND_HEIGHT
+
+HEADER_TITLE = "SCAN-TO-CAD  |  6-View Orthographic Grid"
+LEGEND_TEXT = (
+    "DEPTH MAP KEY:  \u25A0 BRIGHT YELLOW = closest to camera  \u2192  "
+    "\u25A0 DARK PURPLE = furthest from camera  |  "
+    "Background = #1e1e1e (not part of object)"
+)
 
 if sys.platform.startswith("linux"):
     pv.start_xvfb()
@@ -390,10 +406,66 @@ def _draw_cell_borders(draw: ImageDraw.ImageDraw) -> None:
         draw.rectangle((0, y, GRID_WIDTH - 1, y + BORDER_WIDTH - 1), fill=BORDER_COLOR)
 
 
-def render_stl_to_grid(stl_path: str | Path, output_path: str | Path) -> Path:
-    """End-to-end: STL path in, 3072x1024 PNG written to output_path."""
+def _build_header_bar(part_id: str) -> Image.Image:
+    bar = Image.new("RGB", (FULL_WIDTH, HEADER_HEIGHT), color=BAR_BG_COLOR)
+    draw = ImageDraw.Draw(bar)
+    font = _load_font(HEADER_FONT_SIZE, bold=True)
+
+    _, th = _text_size(draw, HEADER_TITLE, font)
+    cy = (HEADER_HEIGHT - th) // 2
+    draw.text((HEADER_PAD_X, cy), HEADER_TITLE, fill=(255, 255, 255), font=font)
+
+    right_text = f"Part ID: {part_id}"
+    rw, rh = _text_size(draw, right_text, font)
+    draw.text(
+        (FULL_WIDTH - HEADER_PAD_X - rw, (HEADER_HEIGHT - rh) // 2),
+        right_text,
+        fill=(255, 255, 255),
+        font=font,
+    )
+    return bar
+
+
+def _build_legend_bar() -> Image.Image:
+    bar = Image.new("RGB", (FULL_WIDTH, LEGEND_HEIGHT), color=LEGEND_BG_COLOR)
+    draw = ImageDraw.Draw(bar)
+    font = _load_font(LEGEND_FONT_SIZE, bold=False)
+    _draw_centered_text(
+        draw,
+        (0, 0, FULL_WIDTH, LEGEND_HEIGHT),
+        LEGEND_TEXT,
+        font,
+    )
+    return bar
+
+
+def _compose_final_image(grid: Image.Image, part_id: str) -> Image.Image:
+    if grid.size != (GRID_WIDTH, GRID_HEIGHT):
+        raise RuntimeError(f"Grid size {grid.size}, expected ({GRID_WIDTH}, {GRID_HEIGHT})")
+
+    canvas = Image.new("RGB", (FULL_WIDTH, FULL_HEIGHT), color=BAR_BG_COLOR)
+    canvas.paste(_build_header_bar(part_id), (0, 0))
+    canvas.paste(grid, (0, HEADER_HEIGHT))
+    canvas.paste(_build_legend_bar(), (0, HEADER_HEIGHT + GRID_HEIGHT))
+    return canvas
+
+
+def render_stl_to_grid(
+    stl_path: str | Path,
+    output_path: str | Path,
+    part_id: str | None = None,
+) -> Path:
+    """End-to-end: STL path in, full 2400x1000 PNG written to output_path.
+
+    `part_id` is embedded in the header bar; when omitted it defaults to the
+    STL filename stem so the CLI works without extra arguments.
+    """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    stl_path = Path(stl_path)
+    if part_id is None:
+        part_id = stl_path.stem
 
     mesh = load_mesh(stl_path)
 
@@ -408,13 +480,17 @@ def render_stl_to_grid(stl_path: str | Path, output_path: str | Path) -> Path:
         depth_maps[direction] = _resize_panel(depth_cropped, RENDER_PANEL_SIZE)
 
     grid = build_grid(renders, depth_maps)
-    if grid.size != (GRID_WIDTH, GRID_HEIGHT):
+    final = _compose_final_image(grid, part_id)
+    if final.size != (FULL_WIDTH, FULL_HEIGHT):
         raise RuntimeError(
-            f"Unexpected grid size {grid.size}, want ({GRID_WIDTH}, {GRID_HEIGHT})"
+            f"Unexpected final image size {final.size}, want ({FULL_WIDTH}, {FULL_HEIGHT})"
         )
 
-    grid.save(output_path, format="PNG")
-    print(f"[stl_renderer] Wrote {output_path} ({grid.size[0]}x{grid.size[1]})")
+    final.save(output_path, format="PNG")
+    print(
+        f"[stl_renderer] Wrote {output_path} "
+        f"({final.size[0]}x{final.size[1]}, part_id={part_id})"
+    )
     return output_path
 
 
@@ -445,12 +521,18 @@ def verify_grid(png_path: str | Path) -> bool:
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="stl_renderer",
-        description="Render an STL mesh into a 3072x1024 6-view PNG grid.",
+        description=f"Render an STL mesh into a {FULL_WIDTH}x{FULL_HEIGHT} 6-view PNG grid.",
     )
     parser.add_argument(
         "--verify",
         action="store_true",
         help="Verify an existing grid PNG matches the expected dimensions.",
+    )
+    parser.add_argument(
+        "--part-id",
+        dest="part_id",
+        default=None,
+        help="Identifier embedded in the header bar (defaults to STL filename stem).",
     )
     parser.add_argument(
         "input_path",
@@ -476,7 +558,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.output_path is None:
         raise SystemExit("output_path is required when not using --verify")
-    render_stl_to_grid(args.input_path, args.output_path)
+    render_stl_to_grid(args.input_path, args.output_path, part_id=args.part_id)
     return 0
 
 
