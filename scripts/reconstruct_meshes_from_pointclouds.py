@@ -99,6 +99,15 @@ HOLE_FILL_PARAMS = {
     'planarity_threshold': 0.025,          # max planar residual / bbox_diag for circular classification
     'absolute_protect_perim_frac': 0.30,   # any loop above this perimeter is protected regardless of shape
     'protect_safety_margin': 0.90,         # cap fill threshold to (margin * smallest protected perim)
+    # "Meshy/Tripo-style cohesive close": after detecting protected real holes,
+    # iteratively fill EVERY remaining boundary loop (with hole_size capped just
+    # below the smallest protected perimeter) until the boundary count converges.
+    # Off by default for the legacy raw-recon path; the cohesion tuner enables
+    # it automatically because the contract there is "clean orthographic views",
+    # not "low chamfer to noisy points".
+    'meshy_close': False,
+    'meshy_max_iters': 4,
+    'meshy_unprotected_cap_frac': 1.5,     # if no real holes detected, cap = bbox_diag * this (effectively unlimited)
 }
 
 DECIMATION_PARAMS = {
@@ -855,6 +864,73 @@ def aggressive_fill_holes(mesh: o3d.geometry.TriangleMesh) -> tuple[o3d.geometry
     return filled, stats
 
 
+def meshy_close_mesh(mesh: o3d.geometry.TriangleMesh) -> tuple[o3d.geometry.TriangleMesh, dict]:
+    """Meshy/Tripo-style cohesive close.
+
+    Detects which boundary loops are "real holes" (large or circular+planar) and
+    treats them as protected. Then iteratively closes EVERY other boundary loop
+    by repeatedly invoking the tensor fill_holes API with hole_size capped just
+    below the smallest protected perimeter. Iterates until the boundary count
+    converges or `meshy_max_iters` is hit.
+
+    Result: a clean cohesive mesh whose only remaining openings are the real
+    through-holes the part actually has. Won't ever bridge a protected hole.
+    """
+    diag = _bbox_diag(mesh)
+    boundary_before = _boundary_edge_count(mesh)
+    stats = {
+        'meshy_close_diag': round(diag, 6),
+        'meshy_close_boundary_before': boundary_before,
+    }
+    if boundary_before == 0:
+        stats['meshy_close_method'] = 'noop'
+        stats['meshy_close_iterations'] = 0
+        stats['meshy_close_boundary_after'] = 0
+        stats['meshy_close_protected_loops'] = 0
+        stats['meshy_close_cap'] = 0.0
+        stats['meshy_close_protected_min_perim'] = None
+        return mesh, stats
+
+    smallest_prot, prot_count, _ = _smallest_protected_perim(mesh, diag)
+    if smallest_prot != float('inf'):
+        cap = HOLE_FILL_PARAMS['protect_safety_margin'] * smallest_prot
+    else:
+        cap = diag * float(HOLE_FILL_PARAMS.get('meshy_unprotected_cap_frac', 1.5))
+
+    stats['meshy_close_protected_loops'] = prot_count
+    stats['meshy_close_protected_min_perim'] = round(smallest_prot, 6) if smallest_prot != float('inf') else None
+    stats['meshy_close_cap'] = round(cap, 6)
+
+    max_iters = max(1, int(HOLE_FILL_PARAMS.get('meshy_max_iters', 4)))
+    current = mesh
+    last_boundary = boundary_before
+    iters_done = 0
+    for _ in range(max_iters):
+        filled = _fill_with_tensor(current, cap)
+        if filled is None:
+            break
+        filled = _cleanup_mesh(filled)
+        new_boundary = _boundary_edge_count(filled)
+        iters_done += 1
+        # Accept the iteration whether or not it converged; we want the most
+        # closed mesh we can get.
+        current = filled
+        # Re-check protect cap on the new mesh: filling can change the boundary
+        # set so a previously-protected loop may now be the only remaining one.
+        if new_boundary > 0:
+            smallest_prot, prot_count, _ = _smallest_protected_perim(current, diag)
+            if smallest_prot != float('inf'):
+                cap = HOLE_FILL_PARAMS['protect_safety_margin'] * smallest_prot
+        if new_boundary == 0 or new_boundary == last_boundary:
+            last_boundary = new_boundary
+            break
+        last_boundary = new_boundary
+
+    stats['meshy_close_iterations'] = iters_done
+    stats['meshy_close_boundary_after'] = last_boundary
+    stats['meshy_close_method'] = 'open3d_tensor_iterative'
+    stats['meshy_close_final_protected_loops'] = prot_count
+    return current, stats
 
 
 def _simplify_with_boundary(mesh: o3d.geometry.TriangleMesh, target: int) -> o3d.geometry.TriangleMesh:
@@ -972,8 +1048,22 @@ def reconstruct_noisy_for_sample(ply_path: Path) -> tuple[o3d.geometry.TriangleM
         mesh.remove_degenerate_triangles()
         mesh.remove_unreferenced_vertices()
 
+    meshy_stats: dict | None = None
+    if HOLE_FILL_PARAMS.get('meshy_close'):
+        mesh, meshy_stats = meshy_close_mesh(mesh)
+        mesh.remove_duplicated_vertices()
+        mesh.remove_duplicated_triangles()
+        mesh.remove_degenerate_triangles()
+        mesh.remove_unreferenced_vertices()
+
+    strategy_tag = strategy
+    if HOLE_FILL_PARAMS.get('enable_in_noisy'):
+        strategy_tag += '+holefill'
+    if HOLE_FILL_PARAMS.get('meshy_close'):
+        strategy_tag += '+meshyclose'
+
     stats = {
-        'strategy': strategy + ('+holefill' if HOLE_FILL_PARAMS.get('enable_in_noisy') else ''),
+        'strategy': strategy_tag,
         'triangles': len(mesh.triangles),
         'vertices': len(mesh.vertices),
         'watertight': bool(mesh.is_watertight()),
@@ -982,6 +1072,7 @@ def reconstruct_noisy_for_sample(ply_path: Path) -> tuple[o3d.geometry.TriangleM
         'boundary_edges': _boundary_edge_count(mesh),
         'chamfer': round(_chamfer_to_cloud(mesh, cloud_pts), 6),
         'hole_fill': fill_stats,
+        'meshy_close': meshy_stats,
         'candidates_evaluated': len(candidates),
         'candidate_summary': [
             {

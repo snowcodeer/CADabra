@@ -240,86 +240,96 @@
     "sample_id": "deepcadimg_000035",
     "success": true,
     "recon_noisy_stl": "deepcadimg_000035_recon_noisy.stl",
-    "strategy": "bp_1.5",
-    "triangles": 7070,
-    "vertices": 3792,
+    "strategy": "poisson_d11+holefill+meshyclose",
+    "triangles": 24412,
+    "vertices": 12176,
     "watertight": false,
     "edge_manifold": true,
-    "long_edge_density": 0.0023,
-    "boundary_edges": 678,
-    "chamfer": 0.043557,
-    "hole_fill": null,
+    "long_edge_density": 0.0061,
+    "boundary_edges": 4,
+    "chamfer": 0.073693,
+    "hole_fill": {
+      "hole_fill_diag": 2.794329,
+      "hole_fill_boundary_before": 447,
+      "hole_fill_protected_loops": 7,
+      "hole_fill_protected_min_perim": 0.342856,
+      "hole_fill_pass1_size": 0.30857,
+      "hole_fill_pass2_size": 0.30857,
+      "hole_fill_boundary_after_pass1": 410,
+      "hole_fill_method": "open3d_tensor_2pass",
+      "hole_fill_boundary_after": 410
+    },
     "candidates_evaluated": 10,
     "candidate_summary": [
       {
         "strategy": "poisson_d9",
-        "triangles": 24237,
+        "triangles": 23986,
         "long_edge_density": 0.0,
-        "chamfer": 0.051844,
-        "score": 0.411766
+        "chamfer": 0.050923,
+        "score": 0.354365
       },
       {
         "strategy": "poisson_d10",
-        "triangles": 24236,
+        "triangles": 23985,
         "long_edge_density": 0.0,
-        "chamfer": 0.051792,
-        "score": 0.411572
+        "chamfer": 0.05062,
+        "score": 0.354709
       },
       {
         "strategy": "poisson_d11",
-        "triangles": 24237,
+        "triangles": 23989,
         "long_edge_density": 0.0,
-        "chamfer": 0.051973,
-        "score": 0.411686
+        "chamfer": 0.050998,
+        "score": 0.354757
       },
       {
         "strategy": "alpha_0.030",
         "triangles": 1867,
         "long_edge_density": 0.0017,
-        "chamfer": 0.22941,
-        "score": 0.085172
+        "chamfer": 0.22962,
+        "score": -0.006378
       },
       {
         "strategy": "alpha_0.050",
         "triangles": 7169,
         "long_edge_density": 0.1003,
-        "chamfer": 0.064267,
-        "score": 0.204124
+        "chamfer": 0.064516,
+        "score": 0.083338
       },
       {
         "strategy": "alpha_0.075",
         "triangles": 5850,
         "long_edge_density": 0.0508,
-        "chamfer": 0.066261,
-        "score": -0.152187
+        "chamfer": 0.066915,
+        "score": -0.152551
       },
       {
         "strategy": "bp_1.0",
         "triangles": 7317,
         "long_edge_density": 0.0,
-        "chamfer": 0.042329,
-        "score": 0.425049
+        "chamfer": 0.041747,
+        "score": 0.298331
       },
       {
         "strategy": "bp_1.5",
         "triangles": 7070,
         "long_edge_density": 0.0023,
         "chamfer": 0.043704,
-        "score": 0.442639
+        "score": 0.311778
       },
       {
         "strategy": "bp_2.2",
         "triangles": 6316,
         "long_edge_density": 0.0119,
-        "chamfer": 0.053007,
-        "score": 0.433263
+        "chamfer": 0.052624,
+        "score": 0.299018
       },
       {
         "strategy": "bp_3.0",
         "triangles": 5434,
         "long_edge_density": 0.0329,
-        "chamfer": 0.078231,
-        "score": 0.405218
+        "chamfer": 0.078684,
+        "score": 0.264273
       }
     ],
     "applied_overrides": {
@@ -329,8 +339,8 @@
           10,
           11
         ],
-        "poisson_density_quantile": 0.012,
-        "envelope_radius_factor": 2.5,
+        "poisson_density_quantile": 0.015,
+        "envelope_radius_factor": 2.2,
         "alpha_factors": [
           0.03,
           0.05,
@@ -346,28 +356,41 @@
       "SCORE_PARAMS": {
         "poisson_bonus": 0.03,
         "alpha_bonus": 0.01,
-        "boundary_penalty": 1.5,
+        "boundary_penalty": 1.2,
         "long_edge_penalty": 1.8,
-        "real_hole_bonus": 0.08
+        "real_hole_bonus": 0.06
       },
       "HOLE_FILL_PARAMS": {
-        "enable_in_noisy": false,
+        "enable_in_noisy": true,
         "pass1_frac": 0.15,
         "pass2_frac": 0.5,
         "min_loop_length_abs": 0.15,
         "protect_real_holes": true,
         "circular_protect_perim_frac": 0.06,
-        "circularity_threshold": 0.55,
-        "absolute_protect_perim_frac": 0.15
+        "circularity_threshold": 0.6,
+        "absolute_protect_perim_frac": 0.25,
+        "meshy_close": true,
+        "meshy_max_iters": 4
       }
     },
     "cohesion": {
-      "score": 74,
-      "diagnosis": "Central through-hole is now clearly visible as a dark island in BOTH Top and Bottom silhouettes \u2014 hole intent restored and matching across views. Remaining defects are ragged spikes/notches around the top rim of the silhouettes (Top, Bottom, Front, Back, Left, Right all show jagged outline at the upper cylinder), and noisy depth bands with blue speckle on the top annular face indicating recon gaps. Z-rotational symmetry reads cleanly.",
+      "score": 60,
+      "diagnosis": "Top view clearly shows the counter-bore recess and Bottom view still only shows a shallow bowl rather than a punched-through hole \u2014 the central bore is being bridged by hole-fill. Silhouettes (top/bottom) are fully closed where one should see a dark island for the through-hole. Side views remain slightly ragged at the rim with small notches.",
       "symmetry": "Z-rotational",
-      "hole_count": 1,
-      "expected_improvement": "Tighter density quantile and stronger boundary/long-edge penalties should clean rim spikes and fill small recon-gap speckle on the top face while preserving the now-visible central hole.",
+      "hole_count": 0,
+      "expected_improvement": "Lower circular protection threshold should let the central bore be detected as a real hole and stay open through the bottom, restoring the through-hole.",
       "geometry_view": "geometry_views/deepcadimg_000035_geometry.png"
+    },
+    "meshy_close": {
+      "meshy_close_diag": 2.794329,
+      "meshy_close_boundary_before": 410,
+      "meshy_close_protected_loops": 5,
+      "meshy_close_protected_min_perim": 1.575389,
+      "meshy_close_cap": 1.41785,
+      "meshy_close_iterations": 3,
+      "meshy_close_boundary_after": 4,
+      "meshy_close_method": "open3d_tensor_iterative",
+      "meshy_close_final_protected_loops": 0
     }
   },
   {
@@ -1118,232 +1141,96 @@
     "sample_id": "deepcadimg_117514",
     "success": true,
     "recon_noisy_stl": "deepcadimg_117514_recon_noisy.stl",
-    "strategy": "poisson_d10+holefill",
-    "triangles": 14210,
-    "vertices": 7109,
-    "watertight": false,
+    "strategy": "bp_1.5+holefill+meshyclose",
+    "triangles": 7958,
+    "vertices": 3981,
+    "watertight": true,
     "edge_manifold": true,
-    "long_edge_density": 0.0015,
-    "boundary_edges": 8,
-    "chamfer": 0.038008,
+    "long_edge_density": 0.009,
+    "boundary_edges": 0,
+    "chamfer": 0.0377,
     "hole_fill": {
-      "hole_fill_diag": 2.635403,
-      "hole_fill_boundary_before": 115,
-      "hole_fill_protected_loops": 4,
-      "hole_fill_protected_min_perim": 0.385113,
-      "hole_fill_pass1_size": 0.346602,
-      "hole_fill_pass2_size": 0.346602,
-      "hole_fill_boundary_after_pass1": 10,
+      "hole_fill_diag": 2.640336,
+      "hole_fill_boundary_before": 177,
+      "hole_fill_protected_loops": 10,
+      "hole_fill_protected_min_perim": 0.284122,
+      "hole_fill_pass1_size": 0.25571,
+      "hole_fill_pass2_size": 0.25571,
+      "hole_fill_boundary_after_pass1": 62,
       "hole_fill_method": "open3d_tensor_2pass",
-      "hole_fill_boundary_after": 8
-    },
-    "candidates_evaluated": 9,
-    "candidate_summary": [
-      {
-        "strategy": "poisson_d9",
-        "triangles": 14107,
-        "long_edge_density": 0.0,
-        "chamfer": 0.036031,
-        "score": -0.030125
-      },
-      {
-        "strategy": "poisson_d10",
-        "triangles": 14107,
-        "long_edge_density": 0.0,
-        "chamfer": 0.035782,
-        "score": -0.029969
-      },
-      {
-        "strategy": "alpha_0.030",
-        "triangles": 3818,
-        "long_edge_density": 0.0238,
-        "chamfer": 0.158131,
-        "score": -0.669296
-      },
-      {
-        "strategy": "alpha_0.050",
-        "triangles": 8208,
-        "long_edge_density": 0.0632,
-        "chamfer": 0.045247,
-        "score": -0.492713
-      },
-      {
-        "strategy": "alpha_0.075",
-        "triangles": 6793,
-        "long_edge_density": 0.0808,
-        "chamfer": 0.055385,
-        "score": -0.335775
-      },
-      {
-        "strategy": "bp_1.0",
-        "triangles": 7839,
-        "long_edge_density": 0.0,
-        "chamfer": 0.033542,
-        "score": -0.100277
-      },
-      {
-        "strategy": "bp_1.5",
-        "triangles": 7835,
-        "long_edge_density": 0.0021,
-        "chamfer": 0.034341,
-        "score": -0.077927
-      },
-      {
-        "strategy": "bp_2.2",
-        "triangles": 7570,
-        "long_edge_density": 0.0096,
-        "chamfer": 0.036202,
-        "score": -0.086911
-      },
-      {
-        "strategy": "bp_3.0",
-        "triangles": 7076,
-        "long_edge_density": 0.0223,
-        "chamfer": 0.038067,
-        "score": -0.104997
-      }
-    ],
-    "applied_overrides": {
-      "RECON_PARAMS": {
-        "poisson_depths": [
-          9,
-          10
-        ],
-        "poisson_density_quantile": 0.015,
-        "envelope_radius_factor": 2.5,
-        "alpha_factors": [
-          0.03,
-          0.05,
-          0.075
-        ],
-        "ball_pivot_radius_factors": [
-          1.0,
-          1.5,
-          2.2,
-          3.0
-        ]
-      },
-      "SCORE_PARAMS": {
-        "poisson_bonus": 0.03,
-        "alpha_bonus": 0.01,
-        "boundary_penalty": 1.5,
-        "long_edge_penalty": 1.8,
-        "real_hole_bonus": 0.0
-      },
-      "HOLE_FILL_PARAMS": {
-        "enable_in_noisy": true,
-        "pass1_frac": 0.25,
-        "pass2_frac": 0.8,
-        "min_loop_length_abs": 0.15,
-        "protect_real_holes": true,
-        "circular_protect_perim_frac": 0.08,
-        "circularity_threshold": 0.6,
-        "absolute_protect_perim_frac": 0.25
-      }
-    },
-    "cohesion": {
-      "score": 78,
-      "diagnosis": "Stepped cylindrical part reads cleanly across all six views with proper Z-rotational symmetry. The previous notch/cavity on the lower flange is gone; silhouettes are continuous and depth bands are smooth. Minor remaining issues: silhouette outlines on the cylinders are faceted (low tessellation) and the bottom flange edge shows slight raggedness in the Front/Back/Left/Right depth views.",
-      "symmetry": "Z-rotational",
-      "hole_count": 0,
-      "expected_improvement": "Slightly higher Poisson depth and tighter density quantile should sharpen the cylindrical silhouettes and reduce facet/staircase artifacts on the flange edges.",
-      "geometry_view": "geometry_views/deepcadimg_117514_geometry.png"
-    }
-  },
-  {
-    "sample_id": "deepcadimg_128105",
-    "success": true,
-    "recon_noisy_stl": "deepcadimg_128105_recon_noisy.stl",
-    "strategy": "bp_1.0+holefill",
-    "triangles": 7929,
-    "vertices": 4017,
-    "watertight": false,
-    "edge_manifold": true,
-    "long_edge_density": 0.0007,
-    "boundary_edges": 109,
-    "chamfer": 0.024206,
-    "hole_fill": {
-      "hole_fill_diag": 2.121639,
-      "hole_fill_boundary_before": 195,
-      "hole_fill_protected_loops": 11,
-      "hole_fill_protected_min_perim": 0.123987,
-      "hole_fill_pass1_size": 0.111588,
-      "hole_fill_pass2_size": 0.111588,
-      "hole_fill_boundary_after_pass1": 112,
-      "hole_fill_method": "open3d_tensor_2pass",
-      "hole_fill_boundary_after": 109
+      "hole_fill_boundary_after": 58
     },
     "candidates_evaluated": 10,
     "candidate_summary": [
       {
         "strategy": "poisson_d9",
-        "triangles": 21075,
+        "triangles": 14181,
         "long_edge_density": 0.0,
-        "chamfer": 0.024864,
-        "score": 0.273772
+        "chamfer": 0.035744,
+        "score": 0.107038
       },
       {
         "strategy": "poisson_d10",
-        "triangles": 21075,
+        "triangles": 14181,
         "long_edge_density": 0.0,
-        "chamfer": 0.024677,
-        "score": 0.274028
+        "chamfer": 0.036046,
+        "score": 0.107381
       },
       {
         "strategy": "poisson_d11",
-        "triangles": 21075,
+        "triangles": 14181,
         "long_edge_density": 0.0,
-        "chamfer": 0.024501,
-        "score": 0.274119
+        "chamfer": 0.036105,
+        "score": 0.107166
       },
       {
         "strategy": "alpha_0.030",
-        "triangles": 7993,
-        "long_edge_density": 0.0367,
-        "chamfer": 0.029641,
-        "score": -0.188187
+        "triangles": 3818,
+        "long_edge_density": 0.0238,
+        "chamfer": 0.156878,
+        "score": -0.551218
       },
       {
         "strategy": "alpha_0.050",
-        "triangles": 7542,
-        "long_edge_density": 0.0539,
-        "chamfer": 0.032949,
-        "score": 0.14538
+        "triangles": 8208,
+        "long_edge_density": 0.0632,
+        "chamfer": 0.045291,
+        "score": -0.3381
       },
       {
         "strategy": "alpha_0.075",
-        "triangles": 4616,
-        "long_edge_density": 0.0302,
-        "chamfer": 0.029052,
-        "score": -0.010347
+        "triangles": 6793,
+        "long_edge_density": 0.0808,
+        "chamfer": 0.054603,
+        "score": -0.118949
       },
       {
         "strategy": "bp_1.0",
-        "triangles": 7885,
+        "triangles": 7839,
         "long_edge_density": 0.0,
-        "chamfer": 0.024095,
-        "score": 0.400671
+        "chamfer": 0.033613,
+        "score": 0.1592
       },
       {
         "strategy": "bp_1.5",
-        "triangles": 7793,
-        "long_edge_density": 0.0009,
-        "chamfer": 0.024446,
-        "score": 0.241988
+        "triangles": 7835,
+        "long_edge_density": 0.0021,
+        "chamfer": 0.034212,
+        "score": 0.190259
       },
       {
         "strategy": "bp_2.2",
-        "triangles": 7305,
-        "long_edge_density": 0.0016,
-        "chamfer": 0.024925,
-        "score": 0.24267
+        "triangles": 7570,
+        "long_edge_density": 0.0096,
+        "chamfer": 0.036495,
+        "score": 0.146961
       },
       {
         "strategy": "bp_3.0",
-        "triangles": 6673,
-        "long_edge_density": 0.0033,
-        "chamfer": 0.025459,
-        "score": 0.179468
+        "triangles": 7076,
+        "long_edge_density": 0.0223,
+        "chamfer": 0.038584,
+        "score": 0.128258
       }
     ],
     "applied_overrides": {
@@ -1353,8 +1240,8 @@
           10,
           11
         ],
-        "poisson_density_quantile": 0.012,
-        "envelope_radius_factor": 2.0,
+        "poisson_density_quantile": 0.01,
+        "envelope_radius_factor": 2.4,
         "alpha_factors": [
           0.03,
           0.05,
@@ -1371,27 +1258,199 @@
         "poisson_bonus": 0.03,
         "alpha_bonus": 0.01,
         "boundary_penalty": 2.0,
-        "long_edge_penalty": 1.5,
-        "real_hole_bonus": 0.06
+        "long_edge_penalty": 2.0,
+        "real_hole_bonus": 0.035
       },
       "HOLE_FILL_PARAMS": {
         "enable_in_noisy": true,
         "pass1_frac": 0.15,
         "pass2_frac": 0.5,
-        "min_loop_length_abs": 0.12,
+        "min_loop_length_abs": 0.15,
         "protect_real_holes": true,
-        "circular_protect_perim_frac": 0.05,
-        "circularity_threshold": 0.55,
-        "absolute_protect_perim_frac": 0.25
+        "circular_protect_perim_frac": 0.06,
+        "circularity_threshold": 0.6,
+        "absolute_protect_perim_frac": 0.25,
+        "meshy_close": true,
+        "meshy_max_iters": 4,
+        "meshy_unprotected_cap_frac": 1.5
       }
     },
     "cohesion": {
-      "score": 80,
-      "diagnosis": "Front and Back views show clear circular through-holes in both end bosses as dark islands in depth and silhouette - hole intent is well recovered and X-mirror symmetry holds. Minor remaining issues: small notch/chip on the right-end boss in the Front view (and mirrored left-end in Back), and the Right depth view still has blue boundary speckle around the square cross-section. Bar silhouettes (top/bottom) are now crisp.",
-      "symmetry": "X-mirror (and Y-mirror through bar)",
-      "hole_count": 2,
-      "expected_improvement": "Lower density quantile slightly increases wall coverage to close the boss-edge notch; stronger boundary penalty cleans the right-end speckle while preserving the protected circular holes.",
+      "score": 78,
+      "diagnosis": "The stepped cylindrical part reads cleanly in all six views with crisp silhouettes, good Z-rotational symmetry, and clean depth steps between the three tiers. The Top depth view shows concentric rings suggesting a possible counter-bore/recess, but the Top silhouette is fully filled and the Bottom view shows no corresponding hole \u2014 so either there's no through-hole (fine) or a shallow blind recess that isn't represented as an opening (also fine for cohesion). Edges are slightly faceted (low-poly polygonal silhouette) but acceptable.",
+      "symmetry": "Z-rotational (~12-fold)",
+      "hole_count": 0,
+      "expected_improvement": "Baseline already cohesive; no changes needed.",
+      "geometry_view": "geometry_views/deepcadimg_117514_geometry.png"
+    },
+    "meshy_close": {
+      "meshy_close_diag": 2.640336,
+      "meshy_close_boundary_before": 58,
+      "meshy_close_protected_loops": 2,
+      "meshy_close_protected_min_perim": 1.454553,
+      "meshy_close_cap": 1.309098,
+      "meshy_close_iterations": 1,
+      "meshy_close_boundary_after": 0,
+      "meshy_close_method": "open3d_tensor_iterative",
+      "meshy_close_final_protected_loops": 2
+    }
+  },
+  {
+    "sample_id": "deepcadimg_128105",
+    "success": true,
+    "recon_noisy_stl": "deepcadimg_128105_recon_noisy.stl",
+    "strategy": "bp_1.0+holefill+meshyclose",
+    "triangles": 8026,
+    "vertices": 4017,
+    "watertight": false,
+    "edge_manifold": true,
+    "long_edge_density": 0.0061,
+    "boundary_edges": 8,
+    "chamfer": 0.026873,
+    "hole_fill": {
+      "hole_fill_diag": 2.121639,
+      "hole_fill_boundary_before": 195,
+      "hole_fill_protected_loops": 6,
+      "hole_fill_protected_min_perim": 0.444076,
+      "hole_fill_pass1_size": 0.318246,
+      "hole_fill_pass2_size": 0.399669,
+      "hole_fill_boundary_after_pass1": 15,
+      "hole_fill_method": "open3d_tensor_2pass",
+      "hole_fill_boundary_after": 8
+    },
+    "candidates_evaluated": 10,
+    "candidate_summary": [
+      {
+        "strategy": "poisson_d9",
+        "triangles": 21103,
+        "long_edge_density": 0.0,
+        "chamfer": 0.025056,
+        "score": 0.175432
+      },
+      {
+        "strategy": "poisson_d10",
+        "triangles": 21103,
+        "long_edge_density": 0.0,
+        "chamfer": 0.024836,
+        "score": 0.175423
+      },
+      {
+        "strategy": "poisson_d11",
+        "triangles": 21103,
+        "long_edge_density": 0.0,
+        "chamfer": 0.02481,
+        "score": 0.175707
+      },
+      {
+        "strategy": "alpha_0.030",
+        "triangles": 7993,
+        "long_edge_density": 0.0367,
+        "chamfer": 0.029515,
+        "score": -0.286339
+      },
+      {
+        "strategy": "alpha_0.050",
+        "triangles": 7542,
+        "long_edge_density": 0.0539,
+        "chamfer": 0.032661,
+        "score": -0.161405
+      },
+      {
+        "strategy": "alpha_0.075",
+        "triangles": 4616,
+        "long_edge_density": 0.0302,
+        "chamfer": 0.029198,
+        "score": -0.085465
+      },
+      {
+        "strategy": "bp_1.0",
+        "triangles": 7885,
+        "long_edge_density": 0.0,
+        "chamfer": 0.02404,
+        "score": 0.220563
+      },
+      {
+        "strategy": "bp_1.5",
+        "triangles": 7793,
+        "long_edge_density": 0.0009,
+        "chamfer": 0.024184,
+        "score": 0.141767
+      },
+      {
+        "strategy": "bp_2.2",
+        "triangles": 7305,
+        "long_edge_density": 0.0016,
+        "chamfer": 0.02458,
+        "score": 0.141627
+      },
+      {
+        "strategy": "bp_3.0",
+        "triangles": 6673,
+        "long_edge_density": 0.0033,
+        "chamfer": 0.025398,
+        "score": 0.137671
+      }
+    ],
+    "applied_overrides": {
+      "RECON_PARAMS": {
+        "poisson_depths": [
+          9,
+          10,
+          11
+        ],
+        "poisson_density_quantile": 0.012,
+        "envelope_radius_factor": 2.5,
+        "alpha_factors": [
+          0.03,
+          0.05,
+          0.075
+        ],
+        "ball_pivot_radius_factors": [
+          1.0,
+          1.5,
+          2.2,
+          3.0
+        ]
+      },
+      "SCORE_PARAMS": {
+        "poisson_bonus": 0.03,
+        "alpha_bonus": 0.01,
+        "boundary_penalty": 2.0,
+        "long_edge_penalty": 2.0,
+        "real_hole_bonus": 0.05
+      },
+      "HOLE_FILL_PARAMS": {
+        "enable_in_noisy": true,
+        "pass1_frac": 0.15,
+        "pass2_frac": 0.5,
+        "min_loop_length_abs": 0.15,
+        "protect_real_holes": true,
+        "circular_protect_perim_frac": 0.08,
+        "circularity_threshold": 0.6,
+        "absolute_protect_perim_frac": 0.25,
+        "meshy_close": true,
+        "meshy_max_iters": 5,
+        "meshy_unprotected_cap_frac": 1.8
+      }
+    },
+    "cohesion": {
+      "score": 82,
+      "diagnosis": "Silhouettes are clean across all six views: dumbbell profile in front/back, flat rectangle in top/bottom, square in left/right\u2014consistent with a solid bone-shaped part with no real through-holes. Minor blue speckle remains on the right-view depth boundary and a small blue artifact on the top-right corner of the top depth view. Edges are otherwise crisp and symmetric.",
+      "symmetry": "X-mirror and Y-mirror (bone profile)",
+      "hole_count": 0,
+      "expected_improvement": "Tighter density quantile and slightly stronger boundary penalty should clean up the residual edge speckle without disturbing the cohesive bone shape.",
       "geometry_view": "geometry_views/deepcadimg_128105_geometry.png"
+    },
+    "meshy_close": {
+      "meshy_close_diag": 2.121639,
+      "meshy_close_boundary_before": 8,
+      "meshy_close_protected_loops": 1,
+      "meshy_close_protected_min_perim": 0.673836,
+      "meshy_close_cap": 0.606452,
+      "meshy_close_iterations": 1,
+      "meshy_close_boundary_after": 8,
+      "meshy_close_method": "open3d_tensor_iterative",
+      "meshy_close_final_protected_loops": 1
     }
   },
   {
@@ -1698,101 +1757,158 @@
     "sample_id": "deepcadimg_002354",
     "success": true,
     "recon_noisy_stl": "deepcadimg_002354_recon_noisy.stl",
-    "strategy": "poisson_d9",
-    "triangles": 10491,
-    "vertices": 5396,
+    "strategy": "poisson_d9+holefill+meshyclose",
+    "triangles": 10682,
+    "vertices": 5345,
     "watertight": false,
     "edge_manifold": true,
-    "long_edge_density": 0.0,
-    "boundary_edges": 321,
-    "chamfer": 0.034169,
-    "candidates_evaluated": 12,
+    "long_edge_density": 0.0092,
+    "boundary_edges": 12,
+    "chamfer": 0.051108,
+    "candidates_evaluated": 10,
     "candidate_summary": [
       {
-        "strategy": "poisson_d8",
-        "triangles": 10491,
-        "long_edge_density": 0.0,
-        "chamfer": 0.034016,
-        "score": -0.040826
-      },
-      {
         "strategy": "poisson_d9",
-        "triangles": 10491,
+        "triangles": 10367,
         "long_edge_density": 0.0,
-        "chamfer": 0.034221,
-        "score": -0.040904
+        "chamfer": 0.033648,
+        "score": 0.321887
       },
       {
         "strategy": "poisson_d10",
-        "triangles": 10490,
+        "triangles": 10366,
         "long_edge_density": 0.0,
-        "chamfer": 0.034063,
-        "score": -0.041123
+        "chamfer": 0.034049,
+        "score": 0.322022
       },
       {
         "strategy": "poisson_d11",
-        "triangles": 10489,
+        "triangles": 10367,
         "long_edge_density": 0.0,
-        "chamfer": 0.034105,
-        "score": -0.040955
+        "chamfer": 0.033733,
+        "score": 0.321574
       },
       {
-        "strategy": "alpha_0.025",
-        "triangles": 1675,
-        "long_edge_density": 0.0,
-        "chamfer": 0.302947,
-        "score": -0.478133
+        "strategy": "alpha_0.030",
+        "triangles": 4168,
+        "long_edge_density": 0.0271,
+        "chamfer": 0.083429,
+        "score": -0.27565
       },
       {
-        "strategy": "alpha_0.040",
-        "triangles": 7054,
-        "long_edge_density": 0.0693,
-        "chamfer": 0.046759,
-        "score": -0.327898
+        "strategy": "alpha_0.050",
+        "triangles": 7995,
+        "long_edge_density": 0.0766,
+        "chamfer": 0.045068,
+        "score": -0.205972
       },
       {
-        "strategy": "alpha_0.060",
-        "triangles": 7754,
-        "long_edge_density": 0.0828,
-        "chamfer": 0.048968,
-        "score": -0.278057
-      },
-      {
-        "strategy": "alpha_0.085",
-        "triangles": 5096,
-        "long_edge_density": 0.0331,
-        "chamfer": 0.048356,
-        "score": -0.093814
+        "strategy": "alpha_0.075",
+        "triangles": 5830,
+        "long_edge_density": 0.0603,
+        "chamfer": 0.055863,
+        "score": 0.060181
       },
       {
         "strategy": "bp_1.0",
         "triangles": 7783,
         "long_edge_density": 0.0,
-        "chamfer": 0.030916,
-        "score": -0.062475
+        "chamfer": 0.03121,
+        "score": 0.17783
       },
       {
         "strategy": "bp_1.5",
         "triangles": 7805,
         "long_edge_density": 0.0021,
-        "chamfer": 0.031273,
-        "score": -0.062111
+        "chamfer": 0.031337,
+        "score": 0.286746
       },
       {
-        "strategy": "bp_2.0",
-        "triangles": 7704,
-        "long_edge_density": 0.007,
-        "chamfer": 0.032758,
-        "score": -0.06949
+        "strategy": "bp_2.2",
+        "triangles": 7629,
+        "long_edge_density": 0.0107,
+        "chamfer": 0.033841,
+        "score": 0.281721
       },
       {
-        "strategy": "bp_2.8",
-        "triangles": 7268,
-        "long_edge_density": 0.0154,
-        "chamfer": 0.035186,
-        "score": -0.081294
+        "strategy": "bp_3.0",
+        "triangles": 7133,
+        "long_edge_density": 0.0172,
+        "chamfer": 0.036178,
+        "score": 0.272039
       }
-    ]
+    ],
+    "hole_fill": {
+      "hole_fill_diag": 2.389925,
+      "hole_fill_boundary_before": 343,
+      "hole_fill_protected_loops": 8,
+      "hole_fill_protected_min_perim": 0.324305,
+      "hole_fill_pass1_size": 0.291874,
+      "hole_fill_pass2_size": 0.291874,
+      "hole_fill_boundary_after_pass1": 201,
+      "hole_fill_method": "open3d_tensor_2pass",
+      "hole_fill_boundary_after": 193
+    },
+    "meshy_close": {
+      "meshy_close_diag": 2.389925,
+      "meshy_close_boundary_before": 193,
+      "meshy_close_protected_loops": 2,
+      "meshy_close_protected_min_perim": 1.520561,
+      "meshy_close_cap": 1.368505,
+      "meshy_close_iterations": 3,
+      "meshy_close_boundary_after": 12,
+      "meshy_close_method": "open3d_tensor_iterative",
+      "meshy_close_final_protected_loops": 1
+    },
+    "applied_overrides": {
+      "RECON_PARAMS": {
+        "poisson_depths": [
+          9,
+          10,
+          11
+        ],
+        "poisson_density_quantile": 0.01,
+        "envelope_radius_factor": 2.0,
+        "alpha_factors": [
+          0.03,
+          0.05,
+          0.075
+        ],
+        "ball_pivot_radius_factors": [
+          1.0,
+          1.5,
+          2.2,
+          3.0
+        ]
+      },
+      "SCORE_PARAMS": {
+        "poisson_bonus": 0.03,
+        "alpha_bonus": 0.01,
+        "boundary_penalty": 2.0,
+        "long_edge_penalty": 1.5,
+        "real_hole_bonus": 0.05
+      },
+      "HOLE_FILL_PARAMS": {
+        "enable_in_noisy": true,
+        "pass1_frac": 0.15,
+        "pass2_frac": 0.5,
+        "min_loop_length_abs": 0.15,
+        "protect_real_holes": true,
+        "circular_protect_perim_frac": 0.08,
+        "circularity_threshold": 0.6,
+        "absolute_protect_perim_frac": 0.25,
+        "meshy_close": true,
+        "meshy_max_iters": 5
+      }
+    },
+    "cohesion": {
+      "score": 76,
+      "diagnosis": "Through-hole reads cleanly in Top and Bottom with matching near-circular islands; L-bracket silhouette is coherent across all six views. Remaining minor defects: slightly wavy silhouette on the thin upstand (Front/Back) and softened corners on the Right/Left profile; hole outline still mildly non-circular.",
+      "symmetry": "X-mirror (left-right along the long axis)",
+      "hole_count": 1,
+      "expected_improvement": "Slightly higher Poisson resolution and tighter density quantile should sharpen the upstand edges and round out the hole outline.",
+      "geometry_view": "geometry_views/deepcadimg_002354_geometry.png"
+    }
   },
   {
     "sample_id": "deepcadimg_037782",

@@ -622,7 +622,20 @@ adjustable parameters are the same as before:
     - boundary_penalty, long_edge_penalty: float in [0.0, 5.0].
     - real_hole_bonus: float in [0.0, 0.10]. Reward per detected real-hole loop.
   HOLE_FILL_PARAMS:
-    - enable_in_noisy:     bool. Set true to run a 2-pass aggressive fill.
+    - meshy_close:         bool. THIS IS THE PRIMARY LEVER. Default ON for cohesion.
+                           Iteratively closes EVERY non-protected boundary loop after
+                           recon so the only remaining openings are the real
+                           through-holes the part actually has (Meshy/Tripo style).
+                           Capped just below the smallest protected real-hole perimeter
+                           so it physically cannot bridge a CAD bore. Leave ON unless
+                           you see real holes getting filled (in which case lower
+                           circular_protect_perim_frac instead).
+    - meshy_max_iters:     int in [1, 8]. Convergence iterations for meshy_close.
+    - meshy_unprotected_cap_frac: float in [0.5, 3.0]. When NO real holes are detected,
+                                  hole_size = bbox_diag * this. Higher = closes more.
+    - enable_in_noisy:     bool. Optional pre-pass that does the legacy 2-pass fill
+                           before meshy_close. Use this when meshy_close alone leaves
+                           noisy small holes (it sometimes does on Poisson candidates).
     - pass1_frac:          float in [0.05, 0.6].
     - pass2_frac:          float in [0.3, 1.5].
     - min_loop_length_abs: float in [0.05, 1.0].
@@ -633,11 +646,13 @@ adjustable parameters are the same as before:
     - absolute_protect_perim_frac: float in [0.10, 0.35].
 
 Hard rules:
-  - WATERTIGHTNESS IS NOT A TARGET. Real holes must be preserved. A part with
-    a clean hole-island in the silhouette views beats a "watertight" mesh that
-    bridged the hole.
+  - WATERTIGHTNESS IS NOT A TARGET, but COHESIVENESS is. The user wants meshes
+    that look like they came out of Meshy/Tripo: closed everywhere EXCEPT at
+    detected real holes. meshy_close is the right default; you generally only
+    turn it off if you see a real hole being bridged in the views.
   - NEVER set HOLE_FILL_PARAMS.protect_real_holes = false. If a real hole is
-    being filled in, LOWER circular_protect_perim_frac instead.
+    being filled in, LOWER circular_protect_perim_frac instead so it gets
+    classified as protected sooner.
   - The fewest, safest tweaks per round. Big jumps tend to regress.
 
 Return ONLY valid JSON, no markdown fences:
@@ -723,16 +738,23 @@ def sync_to_frontend() -> None:
             shutil.copy2(png, FRONTEND_GEOMETRY_DIR / png.name)
 
 
-def render_all_geometry_views(manifest: list[dict]) -> None:
+def render_all_geometry_views(manifest: list[dict], target_ids: set[str] | None = None) -> None:
     """Render the canonical clean geometry view for every successful sample.
 
     This is independent of any LLM call: just the cohesion grid (depth +
     silhouette per view) emitted to GEOMETRY_VIEWS_DIR. Cheap, deterministic,
     and re-runnable any time.
+
+    If `target_ids` is provided, only those samples are (re-)rendered. Use this
+    to keep tuner runs scoped to the highlighted test set without re-rendering
+    every sample on disk.
     """
     GEOMETRY_VIEWS_DIR.mkdir(parents=True, exist_ok=True)
     for entry in manifest:
         if not entry.get("success"):
+            continue
+        sid = entry["sample_id"]
+        if target_ids is not None and sid not in target_ids:
             continue
         stl_name = entry.get("recon_noisy_stl")
         if not stl_name:
@@ -740,11 +762,11 @@ def render_all_geometry_views(manifest: list[dict]) -> None:
         stl_path = OUT_DIR / stl_name
         if not stl_path.exists():
             continue
-        out_path = GEOMETRY_VIEWS_DIR / f"{entry['sample_id']}_geometry.png"
+        out_path = GEOMETRY_VIEWS_DIR / f"{sid}_geometry.png"
         try:
             render_cohesion_grid(stl_path, out_path)
         except Exception as exc:
-            print(f"  geometry render failed for {entry['sample_id']}: {exc}")
+            print(f"  geometry render failed for {sid}: {exc}")
 
 
 def pick_global_samples(manifest: list[dict], n: int) -> list[dict]:
@@ -1018,11 +1040,37 @@ def cohesion_pass(client: anthropic.Anthropic, manifest: list[dict], log: list[d
     COHESION_RENDER_DIR.mkdir(parents=True, exist_ok=True)
     GEOMETRY_VIEWS_DIR.mkdir(parents=True, exist_ok=True)
 
+    # The cohesion contract is "clean orthographic views with real holes
+    # preserved", which matches the meshy_close intent: close everything that
+    # isn't a detected real hole. Bake that into every sample's starting point
+    # so we always run with a cohesively closed baseline.
+    cohesion_baseline_overrides = {
+        "RECON_PARAMS": {},
+        "SCORE_PARAMS": {},
+        "HOLE_FILL_PARAMS": {"meshy_close": True, "meshy_max_iters": 4},
+    }
+
     for entry in successful:
         sid = entry["sample_id"]
         ply_name = f"{sid}.ply"
 
-        # baseline render + scoring
+        # Re-run reconstruction for the baseline with meshy_close on so the
+        # initial render reflects the cohesive-close starting point, not the
+        # leftover STL from a previous tuner pass that may have used a totally
+        # different policy.
+        # Stack: global defaults <- previous per-sample (preserves learned tuning
+        # like recon params that recovered specific holes) <- cohesion baseline
+        # (forces meshy_close on so we always start from a closed mesh).
+        previous_per_sample = overrides_log.get(sid, {})
+        starting_overrides = merge_overrides(global_overrides, previous_per_sample)
+        starting_overrides = merge_overrides(starting_overrides, cohesion_baseline_overrides)
+        baseline_result = run_recon(sid, ply_name, starting_overrides)
+        if not baseline_result.get("success"):
+            print(f"\n  {sid}: baseline (meshy_close) regen failed: {baseline_result.get('error')}")
+            continue
+        update_manifest_in_place(manifest, sid, baseline_result)
+        entry = baseline_result
+
         stl = OUT_DIR / entry["recon_noisy_stl"]
         baseline_png = COHESION_RENDER_DIR / f"{sid}_iter0.png"
         try:
@@ -1054,8 +1102,8 @@ def cohesion_pass(client: anthropic.Anthropic, manifest: list[dict], log: list[d
                     "symmetry": baseline.get("symmetry"), "hole_count": baseline.get("hole_count"),
                     "metrics": metrics_of(entry)})
 
-        applied = deepcopy(global_overrides)
-        last_applied = deepcopy(global_overrides)
+        applied = deepcopy(starting_overrides)
+        last_applied = deepcopy(starting_overrides)
 
         best_record = {
             "score": baseline_score,
@@ -1264,9 +1312,13 @@ def main() -> None:
     OVERRIDES_PATH.write_text(json.dumps(overrides_log, indent=2))
     LOG_PATH.write_text(json.dumps(log, indent=2))
 
-    # Always render the canonical clean ortho geometry view for every sample so
-    # downstream consumers can ingest the PNG even if they never look at the STL.
-    render_all_geometry_views(manifest)
+    # Render the canonical clean ortho geometry view. When --only restricts the
+    # run to a test set, ONLY re-render those samples; existing PNGs for samples
+    # we didn't tune stay as-is (the user explicitly asked for tight scoping).
+    target_geometry_ids: set[str] | None = None
+    if args.only:
+        target_geometry_ids = {e["sample_id"] for e in working_manifest if e.get("success")}
+    render_all_geometry_views(manifest, target_ids=target_geometry_ids)
 
     if not args.no_sync:
         sync_to_frontend()
