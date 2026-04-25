@@ -22,24 +22,43 @@ CLEAN_PARAMS = {
     'statistical_std_ratio': 2.0,
     'radius_nb_points': 8,
     'radius_factor': 3.0,
-    'voxel_size': 0.012,
+    'voxel_size': 0.010,
     'normal_radius': 0.06,
     'normal_max_nn': 40,
-    'denoise_k': 20,
+    'denoise_k': 24,
+    'denoise_sigma_n': 0.30,  # normal-similarity bandwidth (radians-ish via 1-cos)
+    'denoise_iterations': 2,
+    'denoise_step': 0.5,       # fraction of bilateral offset to apply per iteration
     'orient_k': 32,
 }
 
 RECON_PARAMS = {
-    'poisson_depths': (8, 9),
-    'poisson_density_quantile': 0.06,
-    'alpha_factors': (0.06, 0.10, 0.16),
+    'poisson_depths': (8, 9, 10),
+    'poisson_density_quantile': 0.02,    # gentler -> keeps thin hole walls
+    'envelope_radius_factor': 2.5,       # x avg NN distance; crops Poisson shrink-wrap membrane
+    'alpha_factors': (0.035, 0.055, 0.085),  # smaller alphas -> won't bridge across holes
+    'ball_pivot_radius_factors': (1.4, 2.0, 3.0),
+}
+
+SCORE_PARAMS = {
+    'chamfer_sample_count': 4096,
+    'chamfer_weight': 1.0,
+    'manifold_bonus': 0.002,             # small tiebreak so manifold meshes win on equal fidelity
+    'size_penalty': 1e-6,                # tiny tiebreak preferring smaller meshes
+}
+
+HOLE_FILL_PARAMS = {
+    'max_loop_length_frac': 0.08,        # only fill holes with boundary < 8% of bbox diagonal
 }
 
 DECIMATION_PARAMS = {
-    'start_fraction': 0.5,
+    'start_fraction': 0.7,
+    'shrink_per_iter': 0.75,
+    'max_iterations': 4,
     'min_triangles': 24,
-    'hausdorff_budget': 0.005,
+    'chamfer_growth_budget': 1.4,        # stop when chamfer-to-cloud grows beyond 1.4x baseline
     'sample_count': 4096,
+    'boundary_weight': 4.0,              # protects hole rims and silhouettes during simplification
 }
 
 
@@ -67,26 +86,59 @@ def voxel_downsample(pcd: o3d.geometry.PointCloud) -> o3d.geometry.PointCloud:
     return pcd.voxel_down_sample(voxel_size=CLEAN_PARAMS['voxel_size'])
 
 
-def pca_plane_denoise(pcd: o3d.geometry.PointCloud) -> o3d.geometry.PointCloud:
+def _local_normals(points: np.ndarray, indices: np.ndarray) -> np.ndarray:
+    """Eigen-decomposition normals (smallest-eigenvalue eigenvector) per point."""
+    neigh = points[indices]
+    centered = neigh - neigh.mean(axis=1, keepdims=True)
+    cov = np.einsum('nki,nkj->nij', centered, centered) / indices.shape[1]
+    _, eigvecs = np.linalg.eigh(cov)
+    return eigvecs[..., 0]
+
+
+def bilateral_normal_denoise(pcd: o3d.geometry.PointCloud) -> o3d.geometry.PointCloud:
+    """Bilateral filter that weights neighbors by both spatial and normal similarity.
+
+    Critical for hole/edge retention: points on opposite sides of a sharp edge or
+    hole rim have very different surface normals, so the normal-similarity weight
+    suppresses cross-edge averaging that the older PCA-plane filter caused.
+    """
     from sklearn.neighbors import NearestNeighbors
 
     points = np.asarray(pcd.points)
     k = CLEAN_PARAMS['denoise_k']
-    if len(points) < k:
+    if len(points) < k + 1:
         return pcd
 
-    nn = NearestNeighbors(n_neighbors=k, algorithm='kd_tree').fit(points)
-    _, indices = nn.kneighbors(points)
+    nn = NearestNeighbors(n_neighbors=k + 1, algorithm='kd_tree').fit(points)
+    dists, indices = nn.kneighbors(points)
+    neigh_idx = indices[:, 1:]
+    neigh_dist = dists[:, 1:]
 
-    neigh = points[indices]
-    centroids = neigh.mean(axis=1)
-    centered = neigh - centroids[:, None, :]
-    cov = np.einsum('nki,nkj->nij', centered, centered) / k
-    eigvals, eigvecs = np.linalg.eigh(cov)
-    normals = eigvecs[..., 0]
-    delta = points - centroids
-    proj = np.einsum('ni,ni->n', delta, normals)
-    smoothed = points - normals * proj[:, None]
+    sigma_d = float(np.mean(neigh_dist))
+    if sigma_d <= 0:
+        return pcd
+    sigma_n2 = CLEAN_PARAMS['denoise_sigma_n'] ** 2
+
+    normals = _local_normals(points, indices)
+
+    smoothed = points.copy()
+    for _ in range(CLEAN_PARAMS['denoise_iterations']):
+        neigh_pts = smoothed[neigh_idx]
+        neigh_norms = normals[neigh_idx]
+
+        spatial = np.exp(-(neigh_dist ** 2) / (2.0 * sigma_d ** 2))
+        normal_sim = np.einsum('nki,ni->nk', neigh_norms, normals)
+        normal_sim = np.clip(normal_sim, -1.0, 1.0)
+        normal_w = np.exp(-((1.0 - normal_sim) ** 2) / (2.0 * sigma_n2))
+
+        weights = spatial * normal_w
+        weights /= weights.sum(axis=1, keepdims=True) + 1e-12
+
+        weighted_centroid = np.einsum('nk,nki->ni', weights, neigh_pts)
+        delta = weighted_centroid - smoothed
+        proj = np.einsum('ni,ni->n', delta, normals)[:, None]
+        offset = normals * proj
+        smoothed = smoothed + CLEAN_PARAMS['denoise_step'] * offset
 
     out = o3d.geometry.PointCloud()
     out.points = o3d.utility.Vector3dVector(smoothed)
@@ -129,7 +181,39 @@ def _cleanup_mesh(mesh: o3d.geometry.TriangleMesh) -> o3d.geometry.TriangleMesh:
     return mesh
 
 
+def _avg_nn_distance(pts: np.ndarray) -> float:
+    from sklearn.neighbors import NearestNeighbors
+    if len(pts) < 4:
+        return 1e-3
+    nn = NearestNeighbors(n_neighbors=2, algorithm='kd_tree').fit(pts)
+    dists, _ = nn.kneighbors(pts)
+    return float(dists[:, 1].mean())
+
+
+def _envelope_crop(mesh: o3d.geometry.TriangleMesh, pts: np.ndarray, radius: float) -> o3d.geometry.TriangleMesh:
+    """Drop mesh vertices that are farther than `radius` from any input point.
+
+    Removes the 'shrink-wrap' membrane Poisson reconstruction adds across
+    concavities and holes, which is the single biggest hole-killer in the pipeline.
+    """
+    from sklearn.neighbors import NearestNeighbors
+
+    verts = np.asarray(mesh.vertices)
+    if len(verts) == 0 or len(pts) == 0:
+        return mesh
+    nn = NearestNeighbors(n_neighbors=1, algorithm='kd_tree').fit(pts)
+    d, _ = nn.kneighbors(verts)
+    far_mask = d[:, 0] > radius
+    if not np.any(far_mask):
+        return mesh
+    mesh.remove_vertices_by_mask(far_mask)
+    return mesh
+
+
 def _poisson_candidates(pcd: o3d.geometry.PointCloud) -> list[tuple[str, o3d.geometry.TriangleMesh]]:
+    pts = np.asarray(pcd.points)
+    avg_nn = _avg_nn_distance(pts)
+    envelope_r = avg_nn * RECON_PARAMS['envelope_radius_factor']
     out: list[tuple[str, o3d.geometry.TriangleMesh]] = []
     for depth in RECON_PARAMS['poisson_depths']:
         try:
@@ -138,9 +222,10 @@ def _poisson_candidates(pcd: o3d.geometry.PointCloud) -> list[tuple[str, o3d.geo
             if densities.size:
                 threshold = float(np.quantile(densities, RECON_PARAMS['poisson_density_quantile']))
                 mesh.remove_vertices_by_mask(densities < threshold)
+            mesh = _envelope_crop(mesh, pts, envelope_r)
             mesh = _cleanup_mesh(mesh)
             if len(mesh.triangles) > 0:
-                out.append((f'poisson_depth{depth}', mesh))
+                out.append((f'poisson_d{depth}', mesh))
         except Exception:
             continue
     return out
@@ -158,19 +243,34 @@ def _alpha_candidates(pcd: o3d.geometry.PointCloud) -> list[tuple[str, o3d.geome
             mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
             mesh = _cleanup_mesh(mesh)
             if len(mesh.triangles) > 0:
-                out.append((f'alpha_{factor:.2f}', mesh))
+                out.append((f'alpha_{factor:.3f}', mesh))
         except Exception:
             continue
     return out
 
 
-def _mesh_score(mesh: o3d.geometry.TriangleMesh) -> tuple[int, int, int]:
-    # Watertight first, then manifold, then prefer smaller mesh (negative tris).
-    return (
-        int(mesh.is_watertight()),
-        int(mesh.is_edge_manifold()),
-        -len(mesh.triangles),
-    )
+def _ball_pivot_candidates(pcd: o3d.geometry.PointCloud) -> list[tuple[str, o3d.geometry.TriangleMesh]]:
+    """Ball pivoting cannot bridge gaps wider than its radius, so it naturally
+    preserves holes and concave openings - complementary to Poisson and alpha.
+    """
+    pts = np.asarray(pcd.points)
+    if len(pts) < 8:
+        return []
+    if not pcd.has_normals():
+        return []
+    avg_nn = _avg_nn_distance(pts)
+    out: list[tuple[str, o3d.geometry.TriangleMesh]] = []
+    for factor in RECON_PARAMS['ball_pivot_radius_factors']:
+        radius = max(avg_nn * factor, 1e-4)
+        try:
+            radii = o3d.utility.DoubleVector([radius, radius * 1.5])
+            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(pcd, radii)
+            mesh = _cleanup_mesh(mesh)
+            if len(mesh.triangles) > 0:
+                out.append((f'bp_{factor:.1f}', mesh))
+        except Exception:
+            continue
+    return out
 
 
 def _to_trimesh(mesh: o3d.geometry.TriangleMesh) -> trimesh.Trimesh:
@@ -189,89 +289,215 @@ def _from_trimesh(tm: trimesh.Trimesh) -> o3d.geometry.TriangleMesh:
     return out
 
 
-def fill_holes_if_needed(mesh: o3d.geometry.TriangleMesh) -> o3d.geometry.TriangleMesh:
+def _chamfer_to_cloud(mesh: o3d.geometry.TriangleMesh, cloud_pts: np.ndarray) -> float:
+    """Symmetric Chamfer distance between mesh surface samples and the input cloud.
+    Lower = mesh follows the actual data better (rewards meshes that respect holes
+    instead of filling them in)."""
+    from sklearn.neighbors import NearestNeighbors
+
+    if len(mesh.triangles) == 0 or len(cloud_pts) == 0:
+        return float('inf')
+    n = SCORE_PARAMS['chamfer_sample_count']
+    sampled = mesh.sample_points_uniformly(number_of_points=min(n, max(64, len(mesh.triangles))))
+    samples = np.asarray(sampled.points)
+    if len(samples) == 0:
+        return float('inf')
+
+    nn_to_cloud = NearestNeighbors(n_neighbors=1, algorithm='kd_tree').fit(cloud_pts)
+    d_m_to_c, _ = nn_to_cloud.kneighbors(samples)
+    nn_to_mesh = NearestNeighbors(n_neighbors=1, algorithm='kd_tree').fit(samples)
+    d_c_to_m, _ = nn_to_mesh.kneighbors(cloud_pts)
+    return float(d_m_to_c.mean() + d_c_to_m.mean())
+
+
+def _mesh_score(mesh: o3d.geometry.TriangleMesh, cloud_pts: np.ndarray) -> float:
+    """Higher is better. Primary signal is Chamfer fidelity; manifold + small mesh
+    only break ties. Watertightness is intentionally NOT rewarded - meshes with
+    legitimate holes will be non-watertight and we want to keep them that way."""
+    chamfer = _chamfer_to_cloud(mesh, cloud_pts)
+    score = -SCORE_PARAMS['chamfer_weight'] * chamfer
+    if mesh.is_edge_manifold():
+        score += SCORE_PARAMS['manifold_bonus']
+    score -= SCORE_PARAMS['size_penalty'] * len(mesh.triangles)
+    return score
+
+
+def _bbox_diag(mesh: o3d.geometry.TriangleMesh) -> float:
+    verts = np.asarray(mesh.vertices)
+    if len(verts) == 0:
+        return 0.0
+    return float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0)))
+
+
+def fill_small_holes_only(mesh: o3d.geometry.TriangleMesh) -> o3d.geometry.TriangleMesh:
+    """Selectively fill only holes whose boundary loop is short relative to the
+    mesh. Real geometric features (drilled holes, slots, cutouts) have boundary
+    loops large in proportion to the part - we leave those alone."""
     if mesh.is_watertight():
         return mesh
+    diag = _bbox_diag(mesh)
+    max_loop = diag * HOLE_FILL_PARAMS['max_loop_length_frac']
+    if max_loop <= 0:
+        return mesh
+
     tm = _to_trimesh(mesh)
     try:
         trimesh.repair.fix_normals(tm)
+    except Exception:
+        return mesh
+
+    try:
+        boundary_groups = trimesh.grouping.group_rows(tm.edges_sorted, require_count=1)
+        boundary_edges = tm.edges_sorted[boundary_groups]
+    except Exception:
+        try:
+            trimesh.repair.fill_holes(tm)
+        except Exception:
+            return mesh
+        return _cleanup_mesh(_from_trimesh(tm))
+
+    if len(boundary_edges) == 0:
+        return mesh
+
+    try:
+        from collections import defaultdict
+        adj: dict[int, list[int]] = defaultdict(list)
+        for a, b in boundary_edges:
+            adj[int(a)].append(int(b))
+            adj[int(b)].append(int(a))
+
+        visited_edges: set[tuple[int, int]] = set()
+        loops: list[list[int]] = []
+        for start in list(adj.keys()):
+            for nxt in adj[start]:
+                key = (min(start, nxt), max(start, nxt))
+                if key in visited_edges:
+                    continue
+                loop = [start]
+                prev, cur = start, nxt
+                visited_edges.add(key)
+                while cur != start:
+                    loop.append(cur)
+                    nbrs = [n for n in adj[cur] if n != prev]
+                    if not nbrs:
+                        break
+                    nb = nbrs[0]
+                    visited_edges.add((min(cur, nb), max(cur, nb)))
+                    prev, cur = cur, nb
+                    if len(loop) > len(adj):
+                        break
+                if cur == start and len(loop) >= 3:
+                    loops.append(loop)
+
+        verts = tm.vertices
+        small_loop_count = 0
+        for loop in loops:
+            length = 0.0
+            for i in range(len(loop)):
+                length += float(np.linalg.norm(verts[loop[i]] - verts[loop[(i + 1) % len(loop)]]))
+            if length <= max_loop:
+                small_loop_count += 1
+
+        if small_loop_count == 0:
+            return mesh
+
         trimesh.repair.fill_holes(tm)
         trimesh.repair.fix_inversion(tm)
     except Exception:
         return mesh
+
     if len(tm.faces) == 0:
         return mesh
-    fixed = _from_trimesh(tm)
-    return _cleanup_mesh(fixed)
+    return _cleanup_mesh(_from_trimesh(tm))
 
 
-def _hausdorff_estimate(reference: trimesh.Trimesh, candidate: trimesh.Trimesh, rng: np.random.Generator) -> float:
-    n = DECIMATION_PARAMS['sample_count']
-    if len(reference.vertices) == 0 or len(candidate.vertices) == 0:
-        return float('inf')
-
-    ref_points, _ = trimesh.sample.sample_surface(reference, n)
-    cand_points, _ = trimesh.sample.sample_surface(candidate, n)
-
-    _, ref_to_cand, _ = trimesh.proximity.closest_point(candidate, ref_points)
-    _, cand_to_ref, _ = trimesh.proximity.closest_point(reference, cand_points)
-    return float(max(ref_to_cand.max(), cand_to_ref.max()))
 
 
-def decimate(mesh: o3d.geometry.TriangleMesh) -> tuple[o3d.geometry.TriangleMesh, dict]:
+def _simplify_with_boundary(mesh: o3d.geometry.TriangleMesh, target: int) -> o3d.geometry.TriangleMesh:
+    """Open3D's simplify_quadric_decimation accepts boundary_weight on newer
+    versions; older builds don't. Try the keyword first, fall back to default."""
+    try:
+        return mesh.simplify_quadric_decimation(
+            target_number_of_triangles=target,
+            boundary_weight=DECIMATION_PARAMS['boundary_weight'],
+        )
+    except TypeError:
+        return mesh.simplify_quadric_decimation(target_number_of_triangles=target)
+
+
+def decimate(mesh: o3d.geometry.TriangleMesh, cloud_pts: np.ndarray) -> tuple[o3d.geometry.TriangleMesh, dict]:
+    """Iterative quadric decimation bounded by Chamfer fidelity to the input
+    cloud (not to the pre-decimation mesh). This avoids the trap where each step
+    looks fine relative to the previous step but the overall fidelity to the
+    real data degrades silently."""
     triangles = len(mesh.triangles)
     if triangles <= DECIMATION_PARAMS['min_triangles']:
-        return mesh, {'decimation_iterations': 0, 'triangles_before': triangles, 'triangles_after': triangles, 'hausdorff': 0.0}
+        return mesh, {
+            'decimation_iterations': 0,
+            'triangles_before': triangles,
+            'triangles_after': triangles,
+            'chamfer_baseline': 0.0,
+            'chamfer_after': 0.0,
+        }
 
-    rng = np.random.default_rng(0)
-    reference_tm = _to_trimesh(mesh)
+    baseline_chamfer = _chamfer_to_cloud(mesh, cloud_pts)
+    chamfer_cap = baseline_chamfer * DECIMATION_PARAMS['chamfer_growth_budget']
+    was_watertight = mesh.is_watertight()
+
     best = mesh
     best_tris = triangles
+    best_chamfer = baseline_chamfer
     iterations = 0
-    last_hausdorff = 0.0
-
     target = max(DECIMATION_PARAMS['min_triangles'], int(triangles * DECIMATION_PARAMS['start_fraction']))
 
-    while target < best_tris and target >= DECIMATION_PARAMS['min_triangles']:
+    while iterations < DECIMATION_PARAMS['max_iterations'] and target < best_tris and target >= DECIMATION_PARAMS['min_triangles']:
         try:
-            candidate = best.simplify_quadric_decimation(target_number_of_triangles=target)
+            candidate = _simplify_with_boundary(best, target)
             candidate = _cleanup_mesh(candidate)
         except Exception:
             break
-
         if len(candidate.triangles) == 0:
             break
 
-        if not candidate.is_watertight():
-            candidate = fill_holes_if_needed(candidate)
-        if not candidate.is_watertight():
-            break
+        # Honor existing holes - only fill if input was watertight to begin with.
+        if was_watertight and not candidate.is_watertight():
+            candidate = fill_small_holes_only(candidate)
+            if not candidate.is_watertight():
+                break
 
-        cand_tm = _to_trimesh(candidate)
         try:
-            haus = _hausdorff_estimate(reference_tm, cand_tm, rng)
+            cand_chamfer = _chamfer_to_cloud(candidate, cloud_pts)
         except Exception:
             break
 
-        if haus > DECIMATION_PARAMS['hausdorff_budget']:
+        if cand_chamfer > chamfer_cap:
             break
 
         best = candidate
         best_tris = len(candidate.triangles)
-        last_hausdorff = haus
+        best_chamfer = cand_chamfer
         iterations += 1
-        target = max(DECIMATION_PARAMS['min_triangles'], int(best_tris * 0.5))
+        target = max(DECIMATION_PARAMS['min_triangles'], int(best_tris * DECIMATION_PARAMS['shrink_per_iter']))
 
     return best, {
         'decimation_iterations': iterations,
         'triangles_before': triangles,
         'triangles_after': best_tris,
-        'hausdorff': last_hausdorff,
+        'chamfer_baseline': round(baseline_chamfer, 6),
+        'chamfer_after': round(best_chamfer, 6),
     }
 
 
+def _gather_candidates(pcd: o3d.geometry.PointCloud) -> list[tuple[str, o3d.geometry.TriangleMesh]]:
+    candidates: list[tuple[str, o3d.geometry.TriangleMesh]] = []
+    candidates.extend(_poisson_candidates(pcd))
+    candidates.extend(_alpha_candidates(pcd))
+    candidates.extend(_ball_pivot_candidates(pcd))
+    return candidates
+
+
 def reconstruct_noisy_for_sample(ply_path: Path) -> tuple[o3d.geometry.TriangleMesh, dict]:
-    """Naive reconstruction from raw noisy points: only normals + multi-strategy recon + manifold cleanup.
+    """Naive reconstruction from raw noisy points: normals + multi-strategy recon + manifold cleanup.
 
     No outlier removal, no denoise, no hole fill, no decimation. This represents the
     baseline 'what if we skip the cleaning pipeline' visual for the comparison panel.
@@ -281,14 +507,13 @@ def reconstruct_noisy_for_sample(ply_path: Path) -> tuple[o3d.geometry.TriangleM
         raise ValueError('empty point cloud')
 
     pcd = estimate_and_orient_normals(pcd)
+    cloud_pts = np.asarray(pcd.points)
 
-    candidates: list[tuple[str, o3d.geometry.TriangleMesh]] = []
-    candidates.extend(_poisson_candidates(pcd))
-    candidates.extend(_alpha_candidates(pcd))
+    candidates = _gather_candidates(pcd)
     if not candidates:
         raise RuntimeError('reconstruction produced empty mesh')
 
-    strategy, mesh = max(candidates, key=lambda item: _mesh_score(item[1]))
+    strategy, mesh = max(candidates, key=lambda item: _mesh_score(item[1], cloud_pts))
     stats = {
         'strategy': strategy,
         'triangles': len(mesh.triangles),
@@ -312,32 +537,34 @@ def reconstruct_for_sample(ply_path: Path) -> tuple[o3d.geometry.TriangleMesh, d
     pcd = voxel_downsample(pcd)
     stats['after_voxel_downsample'] = _stat(pcd)
 
-    pcd = pca_plane_denoise(pcd)
+    pcd = bilateral_normal_denoise(pcd)
     stats['after_denoise'] = _stat(pcd)
 
     pcd = estimate_and_orient_normals(pcd)
+    cloud_pts = np.asarray(pcd.points)
 
-    candidates: list[tuple[str, o3d.geometry.TriangleMesh]] = []
-    candidates.extend(_poisson_candidates(pcd))
-    candidates.extend(_alpha_candidates(pcd))
+    candidates = _gather_candidates(pcd)
     if not candidates:
         raise RuntimeError('reconstruction produced empty mesh')
 
-    strategy, mesh = max(candidates, key=lambda item: _mesh_score(item[1]))
+    strategy, mesh = max(candidates, key=lambda item: _mesh_score(item[1], cloud_pts))
     stats['strategy'] = strategy
+    stats['candidates_evaluated'] = len(candidates)
     stats['triangles_post_recon'] = len(mesh.triangles)
     stats['watertight_post_recon'] = bool(mesh.is_watertight())
+    stats['chamfer_pre_decimate'] = round(_chamfer_to_cloud(mesh, cloud_pts), 6)
 
-    mesh = fill_holes_if_needed(mesh)
+    mesh = fill_small_holes_only(mesh)
     stats['watertight_post_holefill'] = bool(mesh.is_watertight())
 
-    mesh, deci_stats = decimate(mesh)
+    mesh, deci_stats = decimate(mesh, cloud_pts)
     stats.update(deci_stats)
 
     stats['final_triangles'] = len(mesh.triangles)
     stats['final_vertices'] = len(mesh.vertices)
     stats['watertight'] = bool(mesh.is_watertight())
     stats['edge_manifold'] = bool(mesh.is_edge_manifold())
+    stats['chamfer_final'] = round(_chamfer_to_cloud(mesh, cloud_pts), 6)
 
     return mesh, stats
 
@@ -415,7 +642,7 @@ def run_batch() -> None:
                 f"{result['sample_id']}: strat={result['strategy']} "
                 f"noisy={noisy.get('triangles', 0)} clean={result['triangles_post_recon']}"
                 f"->{result['final_triangles']} verts={result['final_vertices']} "
-                f"wt={result['watertight']} haus={result.get('hausdorff', 0):.4f}"
+                f"wt={result['watertight']} chamfer={result.get('chamfer_final', 0):.4f}"
             )
         else:
             print(f"{result['sample_id']}: failed - {result.get('error', 'unknown error')}")
