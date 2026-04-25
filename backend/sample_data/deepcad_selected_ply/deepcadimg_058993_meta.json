@@ -1,6 +1,6 @@
 {
   "ply_path": "/workspace/backend/sample_data/deepcad_selected_ply/deepcadimg_058993.ply",
-  "n_points": 256,
+  "n_points": 2048,
   "raw_extents_mm": [
     1.5,
     0.4105263,

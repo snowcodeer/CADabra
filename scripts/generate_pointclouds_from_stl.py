@@ -24,7 +24,7 @@ def fps_numpy_fallback(points: np.ndarray, n: int) -> np.ndarray:
     return points[selected]
 
 
-def mesh_to_point_cloud(mesh: trimesh.Trimesh, n_points: int = 256, n_pre_points: int = 8192, seed: int = 0) -> np.ndarray:
+def mesh_to_point_cloud(mesh: trimesh.Trimesh, n_points: int = 2048, n_pre_points: int = 16384, seed: int = 0) -> np.ndarray:
     np.random.seed(seed)
     vertices, _ = trimesh.sample.sample_surface(mesh, n_pre_points)
 
@@ -43,7 +43,7 @@ def normalise_mesh(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     return mesh
 
 
-def stl_to_ply(stl_path: Path, ply_path: Path, n_points: int = 256) -> dict:
+def stl_to_ply(stl_path: Path, ply_path: Path, n_points: int = 2048) -> dict:
     mesh = trimesh.load_mesh(str(stl_path))
     raw_extents = mesh.extents.tolist()
 
@@ -71,7 +71,7 @@ def stl_to_ply(stl_path: Path, ply_path: Path, n_points: int = 256) -> dict:
 def validate_ply(ply_path: Path) -> bool:
     pcd = o3d.io.read_point_cloud(str(ply_path))
     points = np.asarray(pcd.points)
-    assert points.shape == (256, 3), f'Wrong shape: {points.shape}'
+    assert points.shape == (2048, 3), f'Wrong shape: {points.shape}'
     assert not np.any(np.isnan(points)), 'NaN values in point cloud'
     assert points.min() >= -1.1, f'Points outside expected range: {points.min()}'
     assert points.max() <= 1.1, f'Points outside expected range: {points.max()}'
@@ -93,7 +93,7 @@ def run_batch():
         ply_file = out_dir / f'deepcadimg_{sid:06d}.ply'
         meta_file = out_dir / f'deepcadimg_{sid:06d}_meta.json'
 
-        meta = stl_to_ply(stl_file, ply_file, n_points=256)
+        meta = stl_to_ply(stl_file, ply_file, n_points=2048)
         meta['source_stl'] = str(stl_file)
         meta['sample_id'] = f'deepcadimg_{sid:06d}'
         meta_file.write_text(json.dumps(meta, indent=2))
