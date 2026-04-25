@@ -4,3 +4,4 @@ __pycache__/
 backend/outputs/*
 !backend/outputs/.gitkeep
 .venv_data/
+.venv311/

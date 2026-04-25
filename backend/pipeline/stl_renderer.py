@@ -193,14 +193,21 @@ def _resize_panel(arr: np.ndarray, size: int = RENDER_PANEL_SIZE) -> np.ndarray:
 
 
 def _background_mask(rgb: np.ndarray, raw_depth: np.ndarray) -> np.ndarray:
-    """Return True where the pixel is background, by RGB whiteness OR far clip.
+    """Return True where the pixel is background.
 
-    Pure-RGB detection alone leaks anti-aliased edge pixels (which appear
-    almost-white) into the surface set, but those same pixels carry the
-    far-clip depth and would otherwise blow up per-view normalisation. We
-    union both signals so flat surfaces correctly collapse to d_min == d_max.
+    Two VTK behaviours need handling. Modern builds honour the
+    ``fill_value=np.nan`` we pass to ``get_image_depth`` and return NaN at
+    background and anti-aliased edge pixels; in that case RGB-whiteness
+    plus NaN is enough. Older builds ignore ``fill_value`` and return the
+    far-clip depth value for both background and edges; there we additionally
+    mask depths within tolerance of the far-clip max so a constant-depth
+    surface still survives as ``surface``.
     """
     rgb_bg = (rgb >= 250).all(axis=-1)
+    nan_bg = ~np.isfinite(raw_depth)
+    if nan_bg.any():
+        return rgb_bg | nan_bg
+
     far_clip = float(raw_depth.max())
     spread = float(raw_depth.max() - raw_depth.min())
     tol = max(spread * 0.001, 1e-5)
@@ -232,7 +239,7 @@ def render_view(mesh: pv.PolyData, direction: str) -> tuple[np.ndarray, np.ndarr
 
     view = CAMERA_VIEWS[direction]
     center = np.asarray(mesh.center, dtype=float)
-    diag = float(np.linalg.norm(np.asarray(mesh.bounds).reshape(3, 2).ptp(axis=1)))
+    diag = float(np.linalg.norm(np.ptp(np.asarray(mesh.bounds).reshape(3, 2), axis=1)))
     distance = max(diag, 1.0) * 2.0
     cam_pos = tuple(center + np.asarray(view["position"], dtype=float) * distance)
 
