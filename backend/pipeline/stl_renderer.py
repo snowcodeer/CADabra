@@ -57,6 +57,28 @@ GRID_ORDER: list[list[str]] = [
     ["-Z", "-X", "-Y"],
 ]
 
+VIEW_LABELS: dict[str, str] = {
+    "+Z": "+Z \u2014 top view      (base footprint + hole detection)",
+    "+X": "+X \u2014 right side    (height + depth profile)",
+    "+Y": "+Y \u2014 front view    (height + width profile)",
+    "-Z": "-Z \u2014 bottom view   (through-hole confirmation)",
+    "-X": "-X \u2014 left side     (asymmetry check)",
+    "-Y": "-Y \u2014 back view     (rear feature check)",
+}
+
+LABEL_BAR_HEIGHT = 40
+SUB_LABEL_HEIGHT = 25
+CELL_WIDTH = RENDER_PANEL_SIZE * 2
+CELL_RENDER_HEIGHT = RENDER_PANEL_SIZE
+CELL_HEIGHT = LABEL_BAR_HEIGHT + CELL_RENDER_HEIGHT + SUB_LABEL_HEIGHT
+GRID_WIDTH = CELL_WIDTH * 3
+GRID_HEIGHT = CELL_HEIGHT * 2
+BORDER_WIDTH = 2
+BORDER_COLOR = (0x33, 0x33, 0x33)
+BAR_BG_COLOR = (0x1A, 0x1A, 0x1A)
+LABEL_FONT_SIZE = 18
+SUB_LABEL_FONT_SIZE = 13
+
 if sys.platform.startswith("linux"):
     pv.start_xvfb()
 
@@ -255,64 +277,117 @@ def depth_to_colormap(
     return out
 
 
-CELL_WIDTH = PANEL_SIZE * 2
-CELL_HEIGHT = PANEL_SIZE
-GRID_WIDTH = CELL_WIDTH * 3
-GRID_HEIGHT = CELL_HEIGHT * 2
+_FONT_CANDIDATES_BOLD = (
+    "DejaVuSans-Bold.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "Arial Bold.ttf",
+)
+_FONT_CANDIDATES_REGULAR = (
+    "DejaVuSans.ttf",
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "Arial.ttf",
+)
 
 
-def _load_label_font() -> ImageFont.ImageFont:
+def _load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
+    candidates = _FONT_CANDIDATES_BOLD if bold else _FONT_CANDIDATES_REGULAR
+    for name in candidates:
+        try:
+            return ImageFont.truetype(name, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _text_size(draw: ImageDraw.ImageDraw, text: str, font) -> tuple[int, int]:
     try:
-        return ImageFont.truetype("DejaVuSans-Bold.ttf", 22)
-    except OSError:
-        return ImageFont.load_default()
-
-
-def _draw_label(draw: ImageDraw.ImageDraw, x: int, y: int, text: str, font) -> None:
-    pad = 4
-    try:
-        bbox = draw.textbbox((x + pad, y + pad), text, font=font)
+        l, t, r, b = draw.textbbox((0, 0), text, font=font)
+        return r - l, b - t
     except AttributeError:
-        w, h = draw.textsize(text, font=font)
-        bbox = (x + pad, y + pad, x + pad + w, y + pad + h)
-    draw.rectangle(
-        (bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad),
-        fill=(0, 0, 0, 200),
-    )
-    draw.text((x + pad, y + pad), text, fill="white", font=font)
+        return draw.textsize(text, font=font)
+
+
+def _draw_centered_text(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    text: str,
+    font,
+    fill=(255, 255, 255),
+) -> None:
+    x0, y0, x1, y1 = box
+    tw, th = _text_size(draw, text, font)
+    cx = x0 + (x1 - x0 - tw) // 2
+    cy = y0 + (y1 - y0 - th) // 2
+    draw.text((cx, cy), text, fill=fill, font=font)
+
+
+def _paste_array(canvas: Image.Image, arr: np.ndarray, xy: tuple[int, int]) -> None:
+    canvas.paste(Image.fromarray(arr), xy)
 
 
 def build_grid(
     renders: dict[str, np.ndarray],
     depth_maps: dict[str, np.ndarray],
 ) -> Image.Image:
-    """Compose 6 RGB+Depth pairs into a single 3072x1024 PIL image."""
+    """Compose 6 cells per GRID_FORMAT_SPEC.md into a 2400x930 PIL image.
+
+    Each 800x465 cell stacks: top label bar (800x40), render area
+    (RGB 400x400 + Depth 400x400), and a sub-label bar (800x25). Cells
+    are separated by 2px #333333 borders; the outer edge has no border.
+    """
     missing = [d for row in GRID_ORDER for d in row if d not in renders or d not in depth_maps]
     if missing:
         raise ValueError(f"Missing renders/depths for directions: {missing}")
 
-    canvas = Image.new("RGB", (GRID_WIDTH, GRID_HEIGHT), color="white")
-    draw = ImageDraw.Draw(canvas, "RGBA")
-    font = _load_label_font()
+    canvas = Image.new("RGB", (GRID_WIDTH, GRID_HEIGHT), color=BAR_BG_COLOR)
+    draw = ImageDraw.Draw(canvas)
+    label_font = _load_font(LABEL_FONT_SIZE, bold=True)
+    sub_font = _load_font(SUB_LABEL_FONT_SIZE, bold=False)
 
     for row_idx, row in enumerate(GRID_ORDER):
         for col_idx, direction in enumerate(row):
             cell_x = col_idx * CELL_WIDTH
             cell_y = row_idx * CELL_HEIGHT
 
-            rgb_img = Image.fromarray(renders[direction]).resize(
-                (PANEL_SIZE, PANEL_SIZE), Image.BILINEAR
-            )
-            depth_img = Image.fromarray(depth_maps[direction]).resize(
-                (PANEL_SIZE, PANEL_SIZE), Image.NEAREST
+            label_box = (cell_x, cell_y, cell_x + CELL_WIDTH, cell_y + LABEL_BAR_HEIGHT)
+            draw.rectangle(label_box, fill=BAR_BG_COLOR)
+            _draw_centered_text(draw, label_box, VIEW_LABELS[direction], label_font)
+
+            render_y = cell_y + LABEL_BAR_HEIGHT
+            _paste_array(canvas, renders[direction], (cell_x, render_y))
+            _paste_array(
+                canvas,
+                depth_maps[direction],
+                (cell_x + RENDER_PANEL_SIZE, render_y),
             )
 
-            canvas.paste(rgb_img, (cell_x, cell_y))
-            canvas.paste(depth_img, (cell_x + PANEL_SIZE, cell_y))
-            _draw_label(draw, cell_x, cell_y, f"{direction} RGB", font)
-            _draw_label(draw, cell_x + PANEL_SIZE, cell_y, f"{direction} Depth", font)
+            sub_y = render_y + RENDER_PANEL_SIZE
+            sub_box_rgb = (cell_x, sub_y, cell_x + RENDER_PANEL_SIZE, sub_y + SUB_LABEL_HEIGHT)
+            sub_box_depth = (
+                cell_x + RENDER_PANEL_SIZE,
+                sub_y,
+                cell_x + CELL_WIDTH,
+                sub_y + SUB_LABEL_HEIGHT,
+            )
+            draw.rectangle(sub_box_rgb, fill=BAR_BG_COLOR)
+            draw.rectangle(sub_box_depth, fill=BAR_BG_COLOR)
+            _draw_centered_text(draw, sub_box_rgb, "RGB", sub_font)
+            _draw_centered_text(draw, sub_box_depth, "Depth", sub_font)
 
+    _draw_cell_borders(draw)
     return canvas
+
+
+def _draw_cell_borders(draw: ImageDraw.ImageDraw) -> None:
+    """Draw 2px #333333 borders between cells (no outer border)."""
+    for col_idx in range(1, 3):
+        x = col_idx * CELL_WIDTH - BORDER_WIDTH // 2
+        draw.rectangle((x, 0, x + BORDER_WIDTH - 1, GRID_HEIGHT - 1), fill=BORDER_COLOR)
+    for row_idx in range(1, 2):
+        y = row_idx * CELL_HEIGHT - BORDER_WIDTH // 2
+        draw.rectangle((0, y, GRID_WIDTH - 1, y + BORDER_WIDTH - 1), fill=BORDER_COLOR)
 
 
 def render_stl_to_grid(stl_path: str | Path, output_path: str | Path) -> Path:
