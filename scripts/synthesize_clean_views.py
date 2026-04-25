@@ -187,9 +187,10 @@ def render_clean_input_grid(stl_path: Path, out_path: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 CLEANUP_PROMPT = """This is a 6-view orthographic engineering blueprint of one mechanical CAD part,
-reverse-engineered from a noisy 3D point-cloud scan. Your job is to think like a
-CAD designer and INFER the part's intended shape, then redraw the views as if
-they came from the original CAD model rather than from a noisy scan.
+reverse-engineered from a noisy 3D point-cloud scan. Your job is to redraw the
+views as if they came from the ORIGINAL clean CAD model: keep the same shape
+and proportions, clean up scan noise, and keep only the openings that are
+unambiguously real designed through-features.
 
 LAYOUT (do NOT change): a 3 columns x 2 rows grid of six views in this order
 - top row, left to right:     Top, Bottom, Front
@@ -198,45 +199,83 @@ Each cell is split into two halves:
 - LEFT half:  grayscale depth render (darker = nearer to camera)
 - RIGHT half: black-on-white silhouette mask of the same view
 
-Your most important job is to DISTINGUISH two kinds of gap that look similar
-in the raw views but mean very different things:
+ABSOLUTE RULE - PRESERVE OVERALL SIZE, POSITION AND PROPORTIONS.
+The size, position and aspect ratio of each silhouette in the input is correct.
+The cleaned output must occupy the same cell, at the same overall scale, with
+the same overall aspect ratio. You may NOT:
+  - shrink or squash the silhouette into a different aspect ratio (e.g. do
+    NOT redraw a long oblong as a small square)
+  - reposition the part within its cell
+  - change which cell of the grid is occupied by which view
+  - introduce new global geometry that wasn't suggested by the input
 
-(A) NOISE GAPS - these are RECONSTRUCTION ARTIFACTS, infer the missing shape:
-    - small, irregularly-shaped white blobs INSIDE the dark silhouette
-    - ragged or scalloped patches along the silhouette boundary
-    - holes that DO NOT appear in the matching opposite view
-      (a real Top hole would also show up in Bottom; a real Front hole would
-      also show up in Back)
-    - holes that break the part's axis-aligned / mirrored symmetry
-    - depth-view splotches that don't correspond to a clean circle/slot
-    => INFER what the surface should look like and CLOSE these gaps.
-       Fill them with the same dark silhouette color. Reconstruct the
-       surface based on the surrounding geometry and the part's symmetry.
+CLEAN UP NOISE BOTH INSIDE AND ON THE BOUNDARY.
+Within the constraint above, you SHOULD aggressively smooth out scan noise
+that appears either inside the silhouette (white pinholes/blobs) or on the
+silhouette boundary (small notches, peninsulas, ragged edges). A clean CAD
+silhouette has straight edges where it should be straight, smooth curves
+where it should be curved, and clean axis-aligned corners.
 
-(B) REAL DESIGN FEATURES - PRESERVE these, never fill them:
-    - clean, regular circular or slot-shaped openings
-    - holes that DO appear in the matching opposite view at the same
-      location (genuine through-bores show up in BOTH Front+Back, or
-      BOTH Left+Right, or BOTH Top+Bottom)
-    - dark concentric rings in a depth view that indicate a counterbore
-      or through-hole going down the view axis
-    - features that respect the part's symmetry plane
+A small notch or pocket on the OUTER BOUNDARY of one view (e.g. a tiny
+"hanging slot" cut into the top of a column in the Front view) is REAL only
+if perpendicular views confirm it. Specifically:
+  - A slot cut down through the top of a column in Front view must show a
+    matching slot-shaped opening in the Top silhouette.
+  - A notch cut sideways into the column in Front view must show a matching
+    notch in the Right or Left silhouette at the same height.
+If the perpendicular view does NOT confirm the boundary notch, the notch is
+scan noise. SMOOTH IT OUT - redraw the boundary as the clean continuous
+outline that the noise was nibbling away at.
+
+INTERIOR FEATURES - distinguish real openings from noise.
+
+A white opening INSIDE a dark silhouette is REAL only if it passes the matching
+opposite-view test:
+
+  - A vertical (Z-axis) through-bore must show a clean opening in BOTH Top
+    AND Bottom silhouettes at the SAME relative location.
+  - A horizontal (Y-axis, front-back) through-bore must show a clean opening
+    in BOTH Front AND Back silhouettes at the SAME relative location.
+  - A horizontal (X-axis, left-right) through-bore must show a clean opening
+    in BOTH Right AND Left silhouettes at the SAME relative location.
+  - A through-bore visible end-on (a small clean circle inside a silhouette
+    that is the END FACE of the bore) is real if the perpendicular views
+    show the bore as a clear opening. Example: dumbbell with bores along
+    the long axis - Front + Back show large openings, Right + Left show
+    small end-on circles. Preserve all four.
+
+If a feature passes the matching test, KEEP it (preserve size, shape and
+position). If a feature fails the matching test, FILL IT with the silhouette
+color (it is reconstruction noise, not a real hole).
+
+EXPLICITLY NOISE - always close these:
+  - Small notches near the top or bottom of a column that have NO matching
+    opening in the perpendicular axial view (e.g. a Front-view "hanging
+    slot" with no corresponding opening in Top). FILL.
+  - Concentric rings in a depth view paired with a SOLID opposite silhouette
+    -> that's a blind recess / counterbore, NOT a through-hole. The recess
+    is captured by depth shading; keep the silhouette solid.
+  - Pinholes, irregular speckle, ragged peninsulas of white inside the
+    silhouette. FILL.
+  - Any opening visible in fewer than the required number of matched views.
+
+NEVER invent symmetric features. If Front + Back show a real bore, keep it
+in Front + Back; do NOT add a matching opening to Right or Left unless those
+views already show one.
 
 When you redraw each silhouette:
-- Make every outer boundary crisp, axis-aligned where appropriate, and
-  continuous. Reconstruct straight edges as straight, curved edges as smooth.
-- Use the part's symmetry to repair one view from its mirrored counterpart
-  (Front <-> Back, Left <-> Right, Top <-> Bottom).
-- Use the depth view to validate the silhouette: if the depth view shows a
-  clean filled face, the silhouette must be solid; if the depth view shows
-  a clean dark circle, the silhouette must have a matching white circle.
-- The cleaned silhouette should look like a CAD drawing, not a scan.
+  - Reproduce the outer outline at the SAME size and position as the input.
+  - Fill all noise gaps inside.
+  - Keep the real openings exactly where the input has them.
+  - Make every kept edge crisp and clean (straight where straight, smooth
+    curves where curved).
 
 KEEP the same 3x2 LAYOUT and the same 6 views in the same positions. KEEP the
 depth-then-silhouette internal split of each cell. Use grayscale only. Do NOT
 add labels, captions, dimensions, borders, arrows, perspective, shading or
 artistic flourishes. No extra geometry, no decoration. The result should look
-like a clean engineering orthographic set."""
+like a clean engineering orthographic set with the same overall layout and
+proportions as the input."""
 
 
 def _png_b64_to_bytes(b64: str) -> bytes:
