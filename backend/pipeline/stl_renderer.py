@@ -234,6 +234,13 @@ def render_view(mesh: pv.PolyData, direction: str) -> tuple[np.ndarray, np.ndarr
     try:
         plotter.set_background("white")
         _setup_lights(plotter)
+        if direction == "-Z":
+            below_light = pv.Light(
+                position=(0.0, 0.0, -2.0),
+                focal_point=(0.0, 0.0, 0.0),
+            )
+            below_light.intensity = 0.7
+            plotter.add_light(below_light)
         plotter.add_mesh(
             mesh,
             color=MESH_COLOR,
