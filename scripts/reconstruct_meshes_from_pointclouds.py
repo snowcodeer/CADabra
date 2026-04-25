@@ -34,21 +34,32 @@ CLEAN_PARAMS = {
 
 RECON_PARAMS = {
     'poisson_depths': (8, 9, 10),
-    'poisson_density_quantile': 0.02,    # gentler -> keeps thin hole walls
-    'envelope_radius_factor': 2.5,       # x avg NN distance; crops Poisson shrink-wrap membrane
-    'alpha_factors': (0.035, 0.055, 0.085),  # smaller alphas -> won't bridge across holes
-    'ball_pivot_radius_factors': (1.4, 2.0, 3.0),
+    'poisson_density_quantile': 0.015,   # lower -> keeps more wall coverage, fewer false holes
+    'envelope_radius_factor': 2.2,       # x avg NN distance; crops Poisson shrink-wrap membrane
+    'alpha_factors': (0.05, 0.075, 0.11),
+    # ball pivoting kept only as a fallback - it cannot bridge gaps so it tends to leave swiss-cheese
+    'ball_pivot_radius_factors': (1.6, 2.4),
 }
 
 SCORE_PARAMS = {
     'chamfer_sample_count': 4096,
     'chamfer_weight': 1.0,
-    'manifold_bonus': 0.002,             # small tiebreak so manifold meshes win on equal fidelity
-    'size_penalty': 1e-6,                # tiny tiebreak preferring smaller meshes
+    'boundary_penalty': 0.6,             # weight x (boundary_edges / triangle_count) - punishes gappy meshes
+    'poisson_bonus': 0.012,               # strongly prefer poisson family over BP at similar fidelity
+    'alpha_bonus': 0.004,
+    'watertight_bonus': 0.006,           # closed meshes win ties
+    'manifold_bonus': 0.002,
+    'size_penalty': 1e-6,
 }
 
 HOLE_FILL_PARAMS = {
-    'max_loop_length_frac': 0.08,        # only fill holes with boundary < 8% of bbox diagonal
+    # First pass closes small/medium boundary loops, second pass aggressively closes
+    # any remaining membrane-fringe artifacts from envelope cropping. Two passes work
+    # better than a single huge threshold because Open3D's fill_holes seems to behave
+    # differently on a freshly cleaned-up mesh.
+    'pass1_frac': 0.30,
+    'pass2_frac': 0.80,
+    'min_loop_length_abs': 0.20,
 }
 
 DECIMATION_PARAMS = {
@@ -310,12 +321,39 @@ def _chamfer_to_cloud(mesh: o3d.geometry.TriangleMesh, cloud_pts: np.ndarray) ->
     return float(d_m_to_c.mean() + d_c_to_m.mean())
 
 
-def _mesh_score(mesh: o3d.geometry.TriangleMesh, cloud_pts: np.ndarray) -> float:
-    """Higher is better. Primary signal is Chamfer fidelity; manifold + small mesh
-    only break ties. Watertightness is intentionally NOT rewarded - meshes with
-    legitimate holes will be non-watertight and we want to keep them that way."""
+def _boundary_edge_count(mesh: o3d.geometry.TriangleMesh) -> int:
+    """Edges that bound exactly one triangle. Many boundary edges = swiss-cheese."""
+    tris = np.asarray(mesh.triangles)
+    if len(tris) == 0:
+        return 0
+    edges = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]], axis=0)
+    edges.sort(axis=1)
+    _, counts = np.unique(edges, axis=0, return_counts=True)
+    return int((counts == 1).sum())
+
+
+def _mesh_score(mesh: o3d.geometry.TriangleMesh, cloud_pts: np.ndarray, strategy: str) -> float:
+    """Higher is better.
+
+    Primary signal: Chamfer fidelity to the input cloud.
+    Secondary: penalize mesh that has many boundary edges relative to its size
+        (swiss-cheese ball-pivoting outputs).
+    Tertiary: bonuses for Poisson/alpha (fill naturally) over BP, and for watertight/manifold.
+    """
     chamfer = _chamfer_to_cloud(mesh, cloud_pts)
     score = -SCORE_PARAMS['chamfer_weight'] * chamfer
+
+    n_tris = max(len(mesh.triangles), 1)
+    boundary_density = _boundary_edge_count(mesh) / n_tris
+    score -= SCORE_PARAMS['boundary_penalty'] * boundary_density
+
+    if strategy.startswith('poisson'):
+        score += SCORE_PARAMS['poisson_bonus']
+    elif strategy.startswith('alpha'):
+        score += SCORE_PARAMS['alpha_bonus']
+
+    if mesh.is_watertight():
+        score += SCORE_PARAMS['watertight_bonus']
     if mesh.is_edge_manifold():
         score += SCORE_PARAMS['manifold_bonus']
     score -= SCORE_PARAMS['size_penalty'] * len(mesh.triangles)
@@ -329,86 +367,90 @@ def _bbox_diag(mesh: o3d.geometry.TriangleMesh) -> float:
     return float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0)))
 
 
-def fill_small_holes_only(mesh: o3d.geometry.TriangleMesh) -> o3d.geometry.TriangleMesh:
-    """Selectively fill only holes whose boundary loop is short relative to the
-    mesh. Real geometric features (drilled holes, slots, cutouts) have boundary
-    loops large in proportion to the part - we leave those alone."""
-    if mesh.is_watertight():
-        return mesh
-    diag = _bbox_diag(mesh)
-    max_loop = diag * HOLE_FILL_PARAMS['max_loop_length_frac']
-    if max_loop <= 0:
-        return mesh
+def _fill_with_tensor(mesh: o3d.geometry.TriangleMesh, hole_size: float) -> o3d.geometry.TriangleMesh | None:
+    """Use Open3D tensor TriangleMesh.fill_holes(hole_size) to close any boundary
+    loop whose perimeter is < hole_size. Returns None if the operation fails or
+    returns an empty mesh."""
+    try:
+        t_mesh = o3d.t.geometry.TriangleMesh.from_legacy(mesh)
+        filled = t_mesh.fill_holes(hole_size=float(hole_size))
+        out = filled.to_legacy()
+    except Exception:
+        return None
+    if len(out.triangles) == 0:
+        return None
+    return out
 
+
+def _fill_with_trimesh(mesh: o3d.geometry.TriangleMesh) -> o3d.geometry.TriangleMesh:
+    """Fallback hole patcher using trimesh.repair.fill_holes (handles up to
+    triangle-shaped holes). Only used if the Open3D tensor path fails."""
     tm = _to_trimesh(mesh)
     try:
         trimesh.repair.fix_normals(tm)
-    except Exception:
-        return mesh
-
-    try:
-        boundary_groups = trimesh.grouping.group_rows(tm.edges_sorted, require_count=1)
-        boundary_edges = tm.edges_sorted[boundary_groups]
-    except Exception:
-        try:
-            trimesh.repair.fill_holes(tm)
-        except Exception:
-            return mesh
-        return _cleanup_mesh(_from_trimesh(tm))
-
-    if len(boundary_edges) == 0:
-        return mesh
-
-    try:
-        from collections import defaultdict
-        adj: dict[int, list[int]] = defaultdict(list)
-        for a, b in boundary_edges:
-            adj[int(a)].append(int(b))
-            adj[int(b)].append(int(a))
-
-        visited_edges: set[tuple[int, int]] = set()
-        loops: list[list[int]] = []
-        for start in list(adj.keys()):
-            for nxt in adj[start]:
-                key = (min(start, nxt), max(start, nxt))
-                if key in visited_edges:
-                    continue
-                loop = [start]
-                prev, cur = start, nxt
-                visited_edges.add(key)
-                while cur != start:
-                    loop.append(cur)
-                    nbrs = [n for n in adj[cur] if n != prev]
-                    if not nbrs:
-                        break
-                    nb = nbrs[0]
-                    visited_edges.add((min(cur, nb), max(cur, nb)))
-                    prev, cur = cur, nb
-                    if len(loop) > len(adj):
-                        break
-                if cur == start and len(loop) >= 3:
-                    loops.append(loop)
-
-        verts = tm.vertices
-        small_loop_count = 0
-        for loop in loops:
-            length = 0.0
-            for i in range(len(loop)):
-                length += float(np.linalg.norm(verts[loop[i]] - verts[loop[(i + 1) % len(loop)]]))
-            if length <= max_loop:
-                small_loop_count += 1
-
-        if small_loop_count == 0:
-            return mesh
-
         trimesh.repair.fill_holes(tm)
         trimesh.repair.fix_inversion(tm)
     except Exception:
         return mesh
-
     if len(tm.faces) == 0:
         return mesh
-    return _cleanup_mesh(_from_trimesh(tm))
+    return _from_trimesh(tm)
+
+
+def aggressive_fill_holes(mesh: o3d.geometry.TriangleMesh) -> tuple[o3d.geometry.TriangleMesh, dict]:
+    """Close as many holes as possible while preserving truly large openings.
+
+    Two-pass strategy:
+      pass 1: hole_size = pass1_frac * bbox_diag - closes simple noise loops cleanly
+      pass 2: hole_size = pass2_frac * bbox_diag - mops up the shredded membrane fringe
+              that envelope-cropped Poisson reconstructions tend to leave behind.
+
+    Open3D's tensor fill_holes(hole_size) gates on a geometric size of the loop
+    region (not perimeter). The second, more aggressive pass on the
+    already-cleaned mesh is what closes the bulk of envelope-crop artifacts in
+    practice.
+    """
+    diag = _bbox_diag(mesh)
+    boundary_before = _boundary_edge_count(mesh)
+    stats = {
+        'hole_fill_diag': round(diag, 6),
+        'hole_fill_boundary_before': boundary_before,
+    }
+
+    if boundary_before == 0:
+        stats['hole_fill_method'] = 'noop'
+        stats['hole_fill_pass1_size'] = 0.0
+        stats['hole_fill_pass2_size'] = 0.0
+        stats['hole_fill_boundary_after_pass1'] = 0
+        stats['hole_fill_boundary_after'] = 0
+        return mesh, stats
+
+    pass1 = max(diag * HOLE_FILL_PARAMS['pass1_frac'], HOLE_FILL_PARAMS['min_loop_length_abs'])
+    pass2 = max(diag * HOLE_FILL_PARAMS['pass2_frac'], HOLE_FILL_PARAMS['min_loop_length_abs'])
+    stats['hole_fill_pass1_size'] = round(pass1, 6)
+    stats['hole_fill_pass2_size'] = round(pass2, 6)
+
+    filled = _fill_with_tensor(mesh, pass1)
+    if filled is None:
+        fallback = _cleanup_mesh(_fill_with_trimesh(mesh))
+        stats['hole_fill_method'] = 'trimesh_fallback'
+        stats['hole_fill_boundary_after_pass1'] = _boundary_edge_count(fallback)
+        stats['hole_fill_boundary_after'] = stats['hole_fill_boundary_after_pass1']
+        return fallback, stats
+
+    filled = _cleanup_mesh(filled)
+    stats['hole_fill_boundary_after_pass1'] = _boundary_edge_count(filled)
+
+    if stats['hole_fill_boundary_after_pass1'] > 0:
+        filled2 = _fill_with_tensor(filled, pass2)
+        if filled2 is not None:
+            filled = _cleanup_mesh(filled2)
+        stats['hole_fill_method'] = 'open3d_tensor_2pass'
+    else:
+        stats['hole_fill_method'] = 'open3d_tensor_1pass'
+
+    stats['hole_fill_boundary_after'] = _boundary_edge_count(filled)
+    return filled, stats
 
 
 
@@ -459,9 +501,9 @@ def decimate(mesh: o3d.geometry.TriangleMesh, cloud_pts: np.ndarray) -> tuple[o3
         if len(candidate.triangles) == 0:
             break
 
-        # Honor existing holes - only fill if input was watertight to begin with.
+        # If we started watertight, refuse to introduce holes from decimation.
         if was_watertight and not candidate.is_watertight():
-            candidate = fill_small_holes_only(candidate)
+            candidate, _ = aggressive_fill_holes(candidate)
             if not candidate.is_watertight():
                 break
 
@@ -513,7 +555,7 @@ def reconstruct_noisy_for_sample(ply_path: Path) -> tuple[o3d.geometry.TriangleM
     if not candidates:
         raise RuntimeError('reconstruction produced empty mesh')
 
-    strategy, mesh = max(candidates, key=lambda item: _mesh_score(item[1], cloud_pts))
+    strategy, mesh = max(candidates, key=lambda item: _mesh_score(item[1], cloud_pts, item[0]))
     stats = {
         'strategy': strategy,
         'triangles': len(mesh.triangles),
@@ -547,15 +589,18 @@ def reconstruct_for_sample(ply_path: Path) -> tuple[o3d.geometry.TriangleMesh, d
     if not candidates:
         raise RuntimeError('reconstruction produced empty mesh')
 
-    strategy, mesh = max(candidates, key=lambda item: _mesh_score(item[1], cloud_pts))
+    strategy, mesh = max(candidates, key=lambda item: _mesh_score(item[1], cloud_pts, item[0]))
     stats['strategy'] = strategy
     stats['candidates_evaluated'] = len(candidates)
     stats['triangles_post_recon'] = len(mesh.triangles)
     stats['watertight_post_recon'] = bool(mesh.is_watertight())
+    stats['boundary_edges_post_recon'] = _boundary_edge_count(mesh)
     stats['chamfer_pre_decimate'] = round(_chamfer_to_cloud(mesh, cloud_pts), 6)
 
-    mesh = fill_small_holes_only(mesh)
+    mesh, fill_stats = aggressive_fill_holes(mesh)
+    stats.update(fill_stats)
     stats['watertight_post_holefill'] = bool(mesh.is_watertight())
+    stats['boundary_edges_post_holefill'] = _boundary_edge_count(mesh)
 
     mesh, deci_stats = decimate(mesh, cloud_pts)
     stats.update(deci_stats)
