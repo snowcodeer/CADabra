@@ -100,11 +100,6 @@
     "meta_file": "deepcadimg_117514_meta.json"
   },
   {
-    "sample_id": "deepcadimg_011860",
-    "ply_file": "deepcadimg_011860.ply",
-    "meta_file": "deepcadimg_011860_meta.json"
-  },
-  {
     "sample_id": "deepcadimg_128105",
     "ply_file": "deepcadimg_128105.ply",
     "meta_file": "deepcadimg_128105_meta.json"
@@ -203,11 +198,6 @@
     "sample_id": "deepcadimg_057780",
     "ply_file": "deepcadimg_057780.ply",
     "meta_file": "deepcadimg_057780_meta.json"
-  },
-  {
-    "sample_id": "deepcadimg_028804",
-    "ply_file": "deepcadimg_028804.ply",
-    "meta_file": "deepcadimg_028804_meta.json"
   },
   {
     "sample_id": "deepcadimg_067626",
