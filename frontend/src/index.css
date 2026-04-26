@@ -1,0 +1,253 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CADabra design system — sterile, minimal, white/grey */
+
+@layer base {
+  :root {
+    /* Surfaces */
+    --background: 0 0% 99%;
+    --foreground: 220 14% 12%;
+
+    --surface: 0 0% 100%;
+    --surface-muted: 220 14% 97%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 14% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 14% 12%;
+
+    /* Brand */
+    --primary: 220 14% 10%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 220 14% 20%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 220 14% 94%;
+    --accent-foreground: 220 14% 12%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 220 14% 12%;
+
+    --radius: 0.875rem;
+
+    /* Highlights for 3D interactions */
+    --highlight: 210 100% 56%;
+    --highlight-soft: 210 100% 96%;
+
+    /* Shadows — soft, layered */
+    --shadow-sm: 0 1px 2px hsl(220 14% 12% / 0.04);
+    --shadow-md: 0 4px 16px -4px hsl(220 14% 12% / 0.08);
+    --shadow-lg: 0 24px 60px -20px hsl(220 14% 12% / 0.18);
+    --shadow-podium: 0 40px 60px -30px hsl(220 14% 12% / 0.25);
+
+    /* Gradients */
+    --gradient-stage: radial-gradient(
+      ellipse at 50% 60%,
+      hsl(220 14% 100%) 0%,
+      hsl(220 14% 97%) 40%,
+      hsl(220 14% 94%) 100%
+    );
+    --gradient-vignette: radial-gradient(
+      ellipse at 50% 100%,
+      hsl(220 14% 88% / 0.6) 0%,
+      transparent 60%
+    );
+
+    /* Motion */
+    --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+    --transition-base: 240ms var(--ease-out-soft);
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+}
+
+@layer components {
+  .stage-bg {
+    /* Flat, uniform surface — no gradient. Floor, walls and roof all read
+       as one continuous glossy white environment. */
+    background-color: #fafbfc;
+  }
+
+  .pill-button {
+    @apply inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium
+           transition-all duration-200;
+    transition-timing-function: var(--ease-out-soft);
+  }
+
+  .pill-button-ghost {
+    @apply pill-button bg-surface text-foreground border border-border;
+    box-shadow: var(--shadow-sm);
+  }
+  .pill-button-ghost:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+
+  .pill-button-solid {
+    @apply pill-button bg-primary text-primary-foreground;
+    box-shadow: var(--shadow-md);
+  }
+  .pill-button-solid:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-1px);
+  }
+
+  .icon-button {
+    @apply inline-flex h-10 w-10 items-center justify-center rounded-full
+           bg-surface border border-border text-foreground transition-all duration-200;
+    box-shadow: var(--shadow-sm);
+  }
+  .icon-button:hover {
+    box-shadow: var(--shadow-md);
+  }
+
+  .floating-label {
+    @apply rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground;
+    box-shadow: var(--shadow-md);
+    letter-spacing: 0.02em;
+  }
+}
+
+/* ============================================================
+   Workflow upload-screen accents
+   ============================================================ */
+@keyframes shimmer-text {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+@keyframes shimmer-bar {
+  0%   { transform: translateX(0%); }
+  100% { transform: translateX(400%); }
+}
+
+/* ============================================================
+   Phase narration — flip transition
+   Old line rotates/translates up and fades out; new line enters
+   from below with the same motion.
+   ============================================================ */
+@keyframes phase-flip-out {
+  0%   { opacity: 1; transform: translateY(0)      rotateX(0deg);   }
+  100% { opacity: 0; transform: translateY(-110%)  rotateX(90deg);  }
+}
+
+@keyframes phase-flip-in {
+  0%   { opacity: 0; transform: translateY(110%)   rotateX(-90deg); }
+  100% { opacity: 1; transform: translateY(0)      rotateX(0deg);   }
+}
+
+.phase-flip-out {
+  animation: phase-flip-out 700ms var(--ease-out-soft) both;
+  transform-origin: 50% 50%;
+  backface-visibility: hidden;
+}
+
+.phase-flip-in {
+  animation: phase-flip-in 700ms var(--ease-out-soft) both;
+  transform-origin: 50% 50%;
+  backface-visibility: hidden;
+}
+
+
+/* ============================================================
+   Depth column reveal — vertical slice-in
+   Each cell is composed of N thin vertical slices that stagger
+   in left→right with a soft scale + fade. The cell border itself
+   draws in slightly ahead of the slices.
+   ============================================================ */
+@keyframes depth-cell-in {
+  0%   { opacity: 0; transform: translateX(-12px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes depth-slice-in {
+  0%   { opacity: 0; transform: scaleY(0.4); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: scaleY(1); }
+}
+
+@keyframes depth-panel-in {
+  0%   { opacity: 0; transform: translateX(-24px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes mesh-shift-right {
+  0%   { transform: translateX(-25%); }
+  100% { transform: translateX(0); }
+}
+
+.depth-panel-in {
+  animation: depth-panel-in 700ms var(--ease-out-soft) both;
+}
+
+.mesh-shift-right {
+  animation: mesh-shift-right 900ms var(--ease-out-soft) both;
+}
+
+.depth-cell {
+  animation: depth-cell-in 500ms var(--ease-out-soft) both;
+}
+
+.depth-slice {
+  transform-origin: 50% 50%;
+  animation: depth-slice-in 420ms var(--ease-out-soft) both;
+}
+
+/* ============================================================
+   Demo screen — staggered entrance
+   ============================================================ */
+@keyframes demo-slide-in-left {
+  0%   { opacity: 0; transform: translateX(-24px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes demo-slide-in-right {
+  0%   { opacity: 0; transform: translateX(24px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes demo-rise-in {
+  0%   { opacity: 0; transform: translateY(16px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes demo-stage-in {
+  0%   { opacity: 0; transform: scale(0.985); filter: blur(4px); }
+  60%  { filter: blur(0); }
+  100% { opacity: 1; transform: scale(1); filter: blur(0); }
+}
