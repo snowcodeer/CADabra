@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepCAD Selector</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #f7f7f7; }
+    header { padding: 12px 16px; background: #fff; border-bottom: 1px solid #ddd; }
+    main { display: grid; grid-template-columns: 1.3fr 1fr; gap: 12px; padding: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; max-height: calc(100vh - 90px); overflow: auto; }
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; cursor: pointer; }
+    .card img { width: 100%; display: block; background: #eee; }
+    .card .lbl { font-size: 12px; padding: 6px; }
+    .card.active { border-color: #2563eb; box-shadow: 0 0 0 1px #2563eb inset; }
+    .card.tuner { border-color: #f59e0b; }
+    .card.tuner .lbl::after { content: "TEST"; float: right; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 999px; background: #fef3c7; color: #92400e; }
+    .panel { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 10px; }
+    .muted { font-size: 12px; color: #555; margin-bottom: 8px; }
+    .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .compare.three { grid-template-columns: 1fr 1fr 1fr; }
+    .compare-block { border: 1px solid #ddd; border-radius: 6px; overflow: hidden; background: #fafafa; }
+    .compare-block h4 { margin: 0; padding: 6px 8px; font-size: 12px; background: #f0f0f0; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+    .compare-block h4 .tag { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 999px; background: #e5e7eb; color: #374151; }
+    .compare-block h4 .tag.input { background: #dbeafe; color: #1e3a8a; }
+    .compare-block h4 .tag.noisy { background: #fee2e2; color: #991b1b; }
+    .compare-block h4 .tag.clean { background: #dcfce7; color: #14532d; }
+    .compare-block h4 .tag.truth { background: #f3f4f6; color: #374151; }
+    .compare-block h4 .tag.geom  { background: #ede9fe; color: #4c1d95; }
+    .compare-block h4 .tag.synth { background: #fce7f3; color: #831843; }
+    .geom-panel { background: #fafafa; border: 1px solid #ddd; border-radius: 8px; margin-top: 10px; overflow: hidden; }
+    .geom-panel h4 { margin: 0; padding: 6px 10px; font-size: 12px; background: #f3f0fb; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+    .geom-panel.synth h4 { background: #fdf2f8; }
+    .geom-panel.synth h4 .tag.synth { background: #fbcfe8; color: #831843; }
+    .geom-panel .meta-line { font-size: 11px; color: #4b5563; padding: 6px 10px 0 10px; line-height: 1.4; }
+    .geom-panel .meta-line strong { color: #4c1d95; }
+    .geom-panel.synth .meta-line strong { color: #831843; }
+    .geom-panel .img-wrap { padding: 8px 10px 10px 10px; }
+    .geom-panel img { width: 100%; display: block; border-radius: 4px; background: #fff; }
+    .geom-panel .empty { padding: 16px; font-size: 12px; color: #6b7280; text-align: center; }
+    .geom-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+    .geom-row .geom-panel { margin-top: 0; }
+    #pcViewer, #stlViewer, #reconNoisyViewer, #orthoStlViewer { width: 100%; height: 260px; background: #fff; }
+    pre { white-space: pre-wrap; font-size: 12px; max-height: 30vh; overflow: auto; background: #111; color: #eee; border-radius: 6px; padding: 8px; }
+    .geom-panel.cv h4 { background: #ecfeff; }
+    .geom-panel.cv h4 .tag.cv { background: #cffafe; color: #155e75; }
+    .geom-panel.rebuild h4 { background: #fef9c3; }
+    .geom-panel.rebuild h4 .tag.rebuild { background: #fde68a; color: #78350f; }
+    .geom-panel.cad h4 { background: #ede9fe; }
+    .geom-panel.cad h4 .tag.cad { background: #ddd6fe; color: #4c1d95; }
+    .download-row { display: flex; gap: 8px; padding: 8px 10px; flex-wrap: wrap; }
+    .download-row a { font-size: 12px; padding: 4px 10px; background: #eef2ff; color: #3730a3;
+                       text-decoration: none; border-radius: 999px; border: 1px solid #c7d2fe; }
+    .download-row a:hover { background: #e0e7ff; }
+  </style>
+</head>
+<body>
+  <header><strong>DeepCAD Selector</strong> - pipeline stages: ground truth STL -> virtual scan point cloud -> raw triangles</header>
+  <main>
+    <section>
+      <div class="muted" id="status">Loading selected DeepCAD samples...</div>
+      <div class="grid" id="grid"></div>
+    </section>
+    <aside class="panel">
+      <div id="meta" class="muted">Pick a sample</div>
+      <div class="compare three">
+        <div class="compare-block">
+          <h4><span>1. Original STL (ground truth)</span><span class="tag truth">truth</span></h4>
+          <div id="stlViewer"></div>
+        </div>
+        <div class="compare-block">
+          <h4><span>2. Virtual scan point cloud (.ply)</span><span class="tag input">input</span></h4>
+          <div id="pcViewer"></div>
+        </div>
+        <div class="compare-block">
+          <h4><span>3. Triangles from noisy point cloud</span><span class="tag noisy">raw recon</span></h4>
+          <div id="reconNoisyViewer"></div>
+        </div>
+      </div>
+      <div class="muted" id="stlStatus" style="margin-top:8px;">Original STL status: idle</div>
+      <div class="muted" id="pcStatus">Point cloud status: idle</div>
+      <div class="muted" id="reconNoisyStatus">Noisy reconstruction status: idle</div>
+      <div class="geom-row">
+        <div class="geom-panel">
+          <h4><span>4. Captured geometry (raw recon ortho)</span><span class="tag geom">recon-only</span></h4>
+          <div class="meta-line" id="geomMeta">Cohesion score: -</div>
+          <div class="img-wrap" id="geomImgWrap">
+            <div class="empty">Pick a sample to see its captured orthographic geometry view.</div>
+          </div>
+        </div>
+        <div class="geom-panel synth">
+          <h4><span>5. Synthetic clean view (gpt-image-2)</span><span class="tag synth">image-gen</span></h4>
+          <div class="meta-line" id="cleanMeta"><strong>Image-gen cleanup:</strong> &nbsp;not yet generated for this sample.</div>
+          <div class="img-wrap" id="cleanImgWrap">
+            <div class="empty">Pick a TEST sample to see the gpt-image-2 cleaned ortho view.</div>
+          </div>
+        </div>
+      </div>
+      <div class="geom-row">
+        <div class="geom-panel cv">
+          <h4><span>6. OpenCV segmentation overlay</span><span class="tag cv">cv</span></h4>
+          <div class="meta-line" id="overlayMeta"><strong>CV overlay:</strong> &nbsp;line/arc segmentation, holes, corner detection.</div>
+          <div class="img-wrap" id="overlayImgWrap">
+            <div class="empty">No overlay yet. Run scripts/ortho_to_cadquery.py.</div>
+          </div>
+        </div>
+        <div class="geom-panel rebuild">
+          <h4><span>7. CV-rebuilt CAD (6-view render)</span><span class="tag rebuild">rebuild</span></h4>
+          <div class="meta-line" id="rebuildMeta"><strong>Deterministic CV → CadQuery</strong>&nbsp;rebuild from sketches.json.</div>
+          <div class="img-wrap" id="rebuildImgWrap">
+            <div class="empty">No rebuild yet.</div>
+          </div>
+        </div>
+      </div>
+      <div class="geom-panel cad" style="margin-top:10px;">
+        <h4><span>8. Final parametric CAD (STL/STEP/code)</span><span class="tag cad">CAD</span></h4>
+        <div class="meta-line" id="cadMeta">Click any TEST sample to load.</div>
+        <div id="orthoStlViewer"></div>
+        <div class="download-row" id="cadDownloads"></div>
+      </div>
+      <pre id="code"></pre>
+    </aside>
+  </main>
+
+  <script type="module">
+    import * as THREE from './vendor/three.module.js';
+    import { OrbitControls } from './vendor/OrbitControls.js';
+    import { PLYLoader } from './vendor/PLYLoader.js';
+    import { STLLoader } from './vendor/STLLoader.js';
+
+    const grid = document.getElementById('grid');
+    const status = document.getElementById('status');
+    const meta = document.getElementById('meta');
+    const code = document.getElementById('code');
+    const stlStatus = document.getElementById('stlStatus');
+    const pcStatus = document.getElementById('pcStatus');
+    const reconNoisyStatus = document.getElementById('reconNoisyStatus');
+
+    function makeViewer(containerId) {
+      const container = document.getElementById(containerId);
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xffffff);
+      const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.01, 1000);
+      camera.position.set(2.2, 2.2, 2.2);
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      container.appendChild(renderer.domElement);
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.target.set(0, 0, 0);
+      scene.add(new THREE.AxesHelper(0.8));
+      const key = new THREE.DirectionalLight(0xffffff, 0.9);
+      key.position.set(1, 1, 1);
+      scene.add(key);
+      const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+      fill.position.set(-1, 0.6, -0.4);
+      scene.add(fill);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+
+      function animate() {
+        controls.update();
+        renderer.render(scene, camera);
+        requestAnimationFrame(animate);
+      }
+      animate();
+
+      window.addEventListener('resize', () => {
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+      });
+
+      return { scene, camera, controls };
+    }
+
+    const stlView = makeViewer('stlViewer');
+    const pcView = makeViewer('pcViewer');
+    const reconNoisyView = makeViewer('reconNoisyViewer');
+    const orthoStlView = makeViewer('orthoStlViewer');
+
+    const plyLoader = new PLYLoader();
+    const stlLoader = new STLLoader();
+    let currentStl = null;
+    let currentPoints = null;
+    let currentReconNoisy = null;
+    let currentOrthoStl = null;
+    let cohesionByIdPromise = fetch('./deepcad_pcrecon_stl/manifest.json')
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => Object.fromEntries(rows.map(r => [r.sample_id, r.cohesion || null])))
+      .catch(() => ({}));
+
+    function loadGeometryView(sampleId) {
+      const wrap = document.getElementById('geomImgWrap');
+      const meta = document.getElementById('geomMeta');
+      const cleanWrap = document.getElementById('cleanImgWrap');
+      const cleanMeta = document.getElementById('cleanMeta');
+      cohesionByIdPromise.then(cohesionById => {
+        const cohesion = cohesionById[sampleId];
+        if (cohesion) {
+          const score = cohesion.score ?? '-';
+          const sym = cohesion.symmetry ?? 'unknown';
+          const holes = cohesion.hole_count ?? '-';
+          const diag = (cohesion.diagnosis || '').replace(/\s+/g, ' ').trim();
+          meta.innerHTML = `<strong>Cohesion ${score}/100</strong> &middot; symmetry: ${sym} &middot; holes: ${holes}` + (diag ? `<br>${diag}` : '');
+        } else {
+          meta.innerHTML = '<strong>Cohesion: not graded yet</strong>';
+        }
+        const img = new Image();
+        img.alt = `${sampleId} captured geometry view`;
+        img.onload = () => { wrap.innerHTML = ''; wrap.appendChild(img); };
+        img.onerror = () => { wrap.innerHTML = '<div class="empty">Geometry view PNG not available for this sample yet.</div>'; };
+        img.src = `./deepcad_geometry_views/${sampleId}_geometry.png`;
+
+        const hasClean = cohesion && cohesion.geometry_view_clean;
+        if (hasClean) {
+          cleanMeta.innerHTML = '<strong>gpt-image-2 cleanup:</strong> &nbsp;silhouette noise infilled and real holes preserved; depth bands (height steps) kept as separate grays.';
+        } else {
+          cleanMeta.innerHTML = '<strong>gpt-image-2 cleanup:</strong> &nbsp;not yet generated for this sample.';
+        }
+        const cimg = new Image();
+        cimg.alt = `${sampleId} synthetic clean ortho view`;
+        cimg.onload = () => { cleanWrap.innerHTML = ''; cleanWrap.appendChild(cimg); };
+        cimg.onerror = () => {
+          cleanWrap.innerHTML = '<div class="empty">No synthetic clean view yet. Run scripts/synthesize_clean_views.py.</div>';
+        };
+        cimg.src = `./deepcad_geometry_views/${sampleId}_geometry_clean.png`;
+      });
+    }
+
+    function loadStl(sampleId) {
+      stlStatus.textContent = `Original STL status: loading ${sampleId}.stl ...`;
+      if (currentStl) stlView.scene.remove(currentStl);
+      stlLoader.load(`./deepcad_stl/${sampleId}.stl`, (geometry) => {
+        geometry.computeBoundingBox();
+        const c = new THREE.Vector3();
+        geometry.boundingBox.getCenter(c);
+        geometry.translate(-c.x, -c.y, -c.z);
+        const solid = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.9, metalness: 0.02, flatShading: true }));
+        const wire = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0x1f2937, wireframe: true, transparent: true, opacity: 0.9 }));
+        const g = new THREE.Group(); g.add(solid); g.add(wire);
+        stlView.scene.add(g); currentStl = g;
+        stlStatus.textContent = `Original STL status: loaded ${sampleId}.stl`;
+      }, undefined, () => stlStatus.textContent = `Original STL status: failed to load ${sampleId}.stl`);
+    }
+
+    function loadPointCloud(sampleId) {
+      pcStatus.textContent = `Point cloud status: loading ${sampleId}.ply ...`;
+      if (currentPoints) pcView.scene.remove(currentPoints);
+      plyLoader.load(`./deepcad_ply/${sampleId}.ply`, (geometry) => {
+        geometry.computeBoundingBox();
+        const c = new THREE.Vector3();
+        geometry.boundingBox.getCenter(c);
+        geometry.translate(-c.x, -c.y, -c.z);
+        const pts = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0x1d4ed8, size: 0.018, sizeAttenuation: true }));
+        pcView.scene.add(pts); currentPoints = pts;
+        pcStatus.textContent = `Point cloud status: loaded ${sampleId}.ply (${geometry.attributes.position.count} points)`;
+      }, undefined, () => pcStatus.textContent = `Point cloud status: failed to load ${sampleId}.ply`);
+    }
+
+    function loadOrthoArtifacts(sampleId) {
+      // Stage 6: CV segmentation overlay
+      const ovWrap = document.getElementById('overlayImgWrap');
+      const ovImg = new Image();
+      ovImg.alt = `${sampleId} CV overlay`;
+      ovImg.onload = () => { ovWrap.innerHTML = ''; ovWrap.appendChild(ovImg); };
+      ovImg.onerror = () => {
+        ovWrap.innerHTML = '<div class="empty">No overlay yet. Run scripts/ortho_to_cadquery.py.</div>';
+      };
+      ovImg.src = `./ortho_outputs/ortho_${sampleId}_overlay.png`;
+
+      // Stage 7: CV-rebuilt 6-view grid
+      const rbWrap = document.getElementById('rebuildImgWrap');
+      const rbImg = new Image();
+      rbImg.alt = `${sampleId} rebuild grid`;
+      rbImg.onload = () => { rbWrap.innerHTML = ''; rbWrap.appendChild(rbImg); };
+      rbImg.onerror = () => {
+        rbWrap.innerHTML = '<div class="empty">No rebuild yet.</div>';
+      };
+      rbImg.src = `./ortho_outputs/ortho_${sampleId}_recon_grid.png`;
+
+      // Stage 8: 3D rebuild + parametric artifact downloads
+      const cadMeta = document.getElementById('cadMeta');
+      const dl = document.getElementById('cadDownloads');
+      cadMeta.innerHTML = `Final CAD outputs for <strong>${sampleId}</strong> &middot;
+        STEP for Fusion/SolidWorks/Onshape import,
+        <code>generated.py</code> + <code>sketches.json</code> for parametric edits.`;
+      dl.innerHTML = `
+        <a href="./ortho_outputs/ortho_${sampleId}.step" download>STEP (parametric)</a>
+        <a href="./ortho_outputs/ortho_${sampleId}.stl" download>STL (mesh)</a>
+        <a href="./ortho_outputs/ortho_${sampleId}_generated.py" target="_blank">generated.py</a>
+        <a href="./ortho_outputs/ortho_${sampleId}_sketches.json" target="_blank">sketches.json</a>
+      `;
+      // Load STL into the viewer
+      if (currentOrthoStl) orthoStlView.scene.remove(currentOrthoStl);
+      stlLoader.load(`./ortho_outputs/ortho_${sampleId}.stl`, (geometry) => {
+        geometry.computeBoundingBox();
+        const c = new THREE.Vector3();
+        geometry.boundingBox.getCenter(c);
+        geometry.translate(-c.x, -c.y, -c.z);
+        const solid = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+          color: 0xddd6fe, roughness: 0.7, metalness: 0.05, flatShading: true,
+        }));
+        const wire = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+          color: 0x4c1d95, wireframe: true, transparent: true, opacity: 0.6,
+        }));
+        const g = new THREE.Group(); g.add(solid); g.add(wire);
+        orthoStlView.scene.add(g); currentOrthoStl = g;
+      });
+    }
+
+    function loadReconNoisy(sampleId) {
+      reconNoisyStatus.textContent = `Noisy reconstruction status: loading ${sampleId}_recon_noisy.stl ...`;
+      if (currentReconNoisy) reconNoisyView.scene.remove(currentReconNoisy);
+      stlLoader.load(`./deepcad_pcrecon_stl/${sampleId}_recon_noisy.stl`, (geometry) => {
+        geometry.computeBoundingBox();
+        const c = new THREE.Vector3();
+        geometry.boundingBox.getCenter(c);
+        geometry.translate(-c.x, -c.y, -c.z);
+        const solid = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xfde2e2, roughness: 0.9, metalness: 0.02, flatShading: true }));
+        const wire = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0x7f1d1d, wireframe: true, transparent: true, opacity: 0.95 }));
+        const g = new THREE.Group(); g.add(solid); g.add(wire);
+        reconNoisyView.scene.add(g); currentReconNoisy = g;
+        const tris = (geometry.index ? geometry.index.count : geometry.attributes.position.count) / 3;
+        reconNoisyStatus.textContent = `Noisy reconstruction status: loaded ${sampleId}_recon_noisy.stl (${Math.round(tris)} tris)`;
+      }, undefined, () => reconNoisyStatus.textContent = `Noisy reconstruction status: failed to load ${sampleId}_recon_noisy.stl`);
+    }
+
+    const TUNER_TEST_IDS = new Set([
+      'deepcadimg_000035',
+      'deepcadimg_002354',
+      'deepcadimg_117514',
+      'deepcadimg_128105',
+    ]);
+
+    fetch('./deepcad_image_gallery.json')
+      .then(r => r.json())
+      .then(samples => {
+        samples.sort((a, b) => {
+          const aTest = TUNER_TEST_IDS.has(a.sample_id) ? 0 : 1;
+          const bTest = TUNER_TEST_IDS.has(b.sample_id) ? 0 : 1;
+          if (aTest !== bTest) return aTest - bTest;
+          return a.sample_id.localeCompare(b.sample_id);
+        });
+        const testCount = samples.filter(s => TUNER_TEST_IDS.has(s.sample_id)).length;
+        status.textContent = `Loaded ${samples.length} selected DeepCAD samples (${testCount} tagged TEST at top)`;
+        samples.forEach((s, idx) => {
+          const card = document.createElement('div');
+          card.className = TUNER_TEST_IDS.has(s.sample_id) ? 'card tuner' : 'card';
+          card.innerHTML = `<img src="${s.image_file}" alt="${s.sample_id}"><div class="lbl">${s.sample_id}</div>`;
+          card.onclick = () => {
+            document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            meta.textContent = `${s.sample_id} | ${s.dataset} | row ${s.row_index}`;
+            code.textContent = s.code_preview || '(no code preview)';
+            loadStl(s.sample_id);
+            loadPointCloud(s.sample_id);
+            loadReconNoisy(s.sample_id);
+            loadGeometryView(s.sample_id);
+            loadOrthoArtifacts(s.sample_id);
+          };
+          grid.appendChild(card);
+          if (idx === 0) card.click();
+        });
+      })
+      .catch(err => {
+        status.textContent = `Failed to load gallery: ${err}`;
+      });
+  </script>
+</body>
+</html>

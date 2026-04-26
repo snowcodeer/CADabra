@@ -40,7 +40,7 @@ from PIL import Image, ImageDraw, ImageFont
 import anthropic
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+    load_dotenv(Path(__file__).resolve().parent.parent / "backend" / ".env")
 except ImportError:
     pass
 
@@ -49,11 +49,11 @@ REPO = Path(__file__).resolve().parent.parent
 RECON_SCRIPT = REPO / "scripts" / "reconstruct_meshes_from_pointclouds.py"
 SRC_PLY_DIR = REPO / "backend" / "sample_data" / "deepcad_selected_ply"
 OUT_DIR = REPO / "backend" / "outputs" / "deepcad_pc_recon_stl"
-FRONTEND_OUT_DIR = REPO / "frontend" / "deepcad_pcrecon_stl"
+FRONTEND_OUT_DIR = REPO / "frontend-preview" / "deepcad_pcrecon_stl"
 RENDER_DIR = OUT_DIR / "tuner_renders"
 COHESION_RENDER_DIR = OUT_DIR / "cohesion_renders"
 GEOMETRY_VIEWS_DIR = OUT_DIR / "geometry_views"
-FRONTEND_GEOMETRY_DIR = REPO / "frontend" / "deepcad_geometry_views"
+FRONTEND_GEOMETRY_DIR = REPO / "frontend-preview" / "deepcad_geometry_views"
 OVERRIDES_PATH = OUT_DIR / "param_overrides.json"
 LOG_PATH = OUT_DIR / "tuner_log.json"
 MANIFEST_PATH = OUT_DIR / "manifest.json"
