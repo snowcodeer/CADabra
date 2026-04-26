@@ -242,6 +242,16 @@ the same overall aspect ratio. You may NOT:
   - change which cell of the grid is occupied by which view
   - introduce new global geometry that wasn't suggested by the input
 
+PRESERVE REGULAR POLYGON CORNERS.
+If a silhouette in any view shows N STRAIGHT segments meeting at SHARP
+corners (a hexagon, octagon, etc.), the output must still have N
+distinct straight segments and N sharp corners — DO NOT round them
+into a circle or near-circle. The downstream CV recogniser detects
+N-fold symmetry by counting these corners, so smoothing them into a
+curve loses the engineering intent. This applies even when the noise
+makes corners look slightly fuzzy in the input — straighten the
+segments and SHARPEN the corners rather than rounding them.
+
 CLEAN UP NOISE BOTH INSIDE AND ON THE BOUNDARY.
 Within the constraint above, you SHOULD aggressively smooth out scan noise
 that appears either inside the silhouette (white pinholes/blobs) or on the
