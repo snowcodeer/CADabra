@@ -29,6 +29,8 @@ export default {
           "system-ui",
           "sans-serif",
         ],
+        outfit: ["Outfit", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        jetbrains: ["JetBrains Mono", "ui-monospace", "monospace"],
       },
       colors: {
         border: "hsl(var(--border))",
