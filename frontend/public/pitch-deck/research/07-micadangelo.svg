@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="280" viewBox="0 0 200 280" role="img" aria-label="MiCADangelo NeurIPS 2025 poster placeholder">
+  <rect width="200" height="280" fill="#fafbfc" stroke="hsl(220 14% 88%)" stroke-width="1"/>
+  <text x="100" y="32" text-anchor="middle" fill="hsl(220 14% 45%)" font-family="ui-sans-serif,system-ui,sans-serif" font-size="8">NeurIPS 2025</text>
+  <text x="100" y="52" text-anchor="middle" fill="hsl(220 14% 20%)" font-family="ui-sans-serif,system-ui,sans-serif" font-size="10" font-weight="600">MiCADangelo</text>
+  <line x1="16" y1="64" x2="184" y2="64" stroke="hsl(220 14% 90%)" />
+  <text x="100" y="92" text-anchor="middle" fill="hsl(220 9% 46%)" font-family="ui-sans-serif,system-ui,sans-serif" font-size="8">Poster / first page</text>
+  <text x="100" y="112" text-anchor="middle" fill="hsl(220 9% 60%)" font-family="ui-sans-serif,system-ui,sans-serif" font-size="7">(replace with PNG)</text>
+</svg>

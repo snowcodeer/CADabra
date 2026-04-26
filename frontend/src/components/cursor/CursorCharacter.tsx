@@ -19,8 +19,9 @@ import { cursorCharacter } from "./cursorCharacterState";
  * Pointer-events are disabled so all clicks fall through to the page.
  */
 
-const PIVOT_X = 0.59; // wrench head sits roughly 60% across the art
-const PIVOT_Y = 0.34;
+// Fine-tuned so the on-screen pointer sits on the wrench pin center.
+const PIVOT_X = 0.632;
+const PIVOT_Y = 0.312;
 const BUFFER_W = 240;
 const BUFFER_H = (240 * 696) / 1237;
 const DRAW_SIZE = 110; // CSS pixels — visible silhouette footprint
@@ -29,6 +30,7 @@ const FOLLOW_LERP = 0.12;
 const TILT_LERP = 0.18;
 const FLIP_LERP = 0.18;
 const FADE_HOVER_LERP = 0.18;
+const SHOW_POINTER_MARKER = false;
 
 export function CursorCharacter() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -267,10 +269,21 @@ export function CursorCharacter() {
       // ---- Frame paint ----
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, W, H);
+      ctx.save();
       ctx.globalAlpha = opacity;
       ctx.translate(currentX, currentY);
       drawSilhouetteInto(ctx, DRAW_SIZE, smoothTilt, flipScale);
-      ctx.globalAlpha = 1;
+      ctx.restore();
+
+      if (SHOW_POINTER_MARKER && hasMouse) {
+        ctx.beginPath();
+        ctx.arc(targetX, targetY, 2.25, 0, Math.PI * 2);
+        ctx.fillStyle = "#ef4444";
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(255,255,255,0.9)";
+        ctx.stroke();
+      }
 
       raf = requestAnimationFrame(tick);
     };

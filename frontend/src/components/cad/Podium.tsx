@@ -12,26 +12,30 @@ interface PodiumProps {
  * geometry reads cleanly without busy reflections.
  */
 export function Podium({ position = [0, 0, 0], scale = 1 }: PodiumProps) {
-  // Soft satin white — slightly off-white so it doesn't blow out against
-  // the page background, low specular for a clean look.
+  // Soft white with a subtle clearcoat highlight so motion/rotation reads
+  // clearly under the studio environment.
   const baseMat = useMemo(
     () =>
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshPhysicalMaterial({
         color: "#d9dee7",
-        roughness: 0.55,
-        metalness: 0.0,
-        envMapIntensity: 0.6,
+        roughness: 0.34,
+        metalness: 0.03,
+        clearcoat: 0.35,
+        clearcoatRoughness: 0.22,
+        envMapIntensity: 0.85,
       }),
     [],
   );
 
   const topMat = useMemo(
     () =>
-      new THREE.MeshStandardMaterial({
+      new THREE.MeshPhysicalMaterial({
         color: "#edf1f6",
-        roughness: 0.45,
-        metalness: 0.0,
-        envMapIntensity: 0.7,
+        roughness: 0.26,
+        metalness: 0.04,
+        clearcoat: 0.5,
+        clearcoatRoughness: 0.16,
+        envMapIntensity: 1.0,
       }),
     [],
   );

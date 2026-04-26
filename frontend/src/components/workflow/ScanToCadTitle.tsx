@@ -5,10 +5,10 @@ import * as THREE from "three";
 /**
  * "SCAN to CAD" lockup.
  *
- * - SCAN — rendered as a 3D POINT CLOUD. We rasterise the word into an
- *   offscreen canvas, sample filled pixels on a jittered grid, then draw
- *   each sample as a small dot in an SVG. A second, offset+faded copy
- *   of the dot field is drawn behind to imply scan depth.
+ * - SCAN — dense 3D point cloud (like the Lego brick on /workflow). Text is
+ *   rasterized, then sampled on a fine grid; points fill front/back faces and
+ *   edge strips along Z for a slight extrusion. A gentle tilt (and optional
+ *   a fixed isometric tilt makes depth readable.
  * - to   — plain Space Grotesk at the same cap height, low-emphasis.
  * - CAD  — rendered as a 3D WIREFRAME. Outlined glyphs with connecting
  *   "depth ribs" between a front face and a back face, plus thin internal
@@ -41,10 +41,8 @@ function useFontsReady(families: string[]) {
   return ready;
 }
 
-// ---------- SCAN: real 3D point cloud ----------
+// ---------- SCAN: 3D point cloud (Lego-style, extruded) ----------
 
-/** Inner three.js cloud — receives a Float32Array of XYZ positions and
- *  renders them as round, slightly-shaded points. Static, face-on. */
 function PointCloudMesh({
   positions,
   pointSize,
@@ -57,21 +55,27 @@ function PointCloudMesh({
   const geom = useMemo(() => {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    g.computeBoundingSphere();
+    g.center();
     return g;
   }, [positions]);
 
+  const mat = useMemo(
+    () =>
+      new THREE.PointsMaterial({
+        color,
+        size: pointSize,
+        sizeAttenuation: true,
+        transparent: true,
+        opacity: 0.94,
+        depthWrite: false,
+      }),
+    [color, pointSize],
+  );
+
   return (
-    <points geometry={geom}>
-      <pointsMaterial
-        color={color}
-        size={pointSize}
-        sizeAttenuation={false}
-        transparent
-        opacity={0.95}
-        depthWrite={false}
-      />
-    </points>
+    <group rotation={[-0.09, 0.22, 0]}>
+      <points geometry={geom} material={mat} />
+    </group>
   );
 }
 
@@ -81,12 +85,14 @@ function PointCloudText({
   fontWeight = 400,
   fontSize,
   letterSpacing = "0.04em",
-  /** Pixel pitch of the front/back face sampling grid. Smaller = denser. */
-  pitch = 2,
-  dotColor = "#2a2f3a",
-  /** World-space depth of the extrusion (relative to text height). */
-  depthRatio = 0.32,
-  /** Number of intermediate slices between front and back for side walls. */
+  /** CSS px grid pitch; smaller = denser */
+  pitch = 1.1,
+  dotColor = "#1f2430",
+  /** Horizontal compression factor (1 = unchanged). */
+  xCompress = 1,
+  /** Extrusion depth relative to cap height */
+  depthRatio = 0.16,
+  /** Samples along Z for silhouette / edge strips */
   depthSlices = 14,
 }: {
   text: string;
@@ -96,6 +102,7 @@ function PointCloudText({
   letterSpacing?: string;
   pitch?: number;
   dotColor?: string;
+  xCompress?: number;
   depthRatio?: number;
   depthSlices?: number;
 }) {
@@ -109,12 +116,9 @@ function PointCloudText({
     setSize({ w: Math.ceil(r.width), h: Math.ceil(r.height) });
   }, [ready, text, fontFamily, fontWeight, fontSize, letterSpacing]);
 
-  // Build a true 3D point cloud:
-  //   - front + back face: every filled pixel on a dense grid
-  //   - side walls: silhouette pixels duplicated across N depth slices
   const positions = useMemo<Float32Array | null>(() => {
     if (!size) return null;
-    const SCALE = 2; // supersample for crisper glyph edges
+    const SCALE = 2;
     const W = (size.w + 16) * SCALE;
     const H = (size.h + 16) * SCALE;
     const canvas = document.createElement("canvas");
@@ -135,67 +139,83 @@ function PointCloudText({
       x += ctx.measureText(ch).width + lsPx;
     }
     const data = ctx.getImageData(0, 0, W, H).data;
-    const filled = (px: number, py: number) =>
-      px >= 0 && py >= 0 && px < W && py < H && data[(py * W + px) * 4 + 3] > 128;
+    const filled = (px: number, py: number) => {
+      if (px < 0 || py < 0 || px >= W || py >= H) return false;
+      return data[(py * W + px) * 4 + 3] > 24;
+    };
 
     const step = Math.max(1, Math.round(pitch * SCALE));
+    const sampleRadius = Math.max(1, Math.floor(step * 0.5));
+    const hasInkNearby = (px: number, py: number) => {
+      for (let oy = -sampleRadius; oy <= sampleRadius; oy++) {
+        for (let ox = -sampleRadius; ox <= sampleRadius; ox++) {
+          if (filled(px + ox, py + oy)) return true;
+        }
+      }
+      return false;
+    };
+
+    let seed = 0x5c414e;
+    const rand = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 0xffffffff;
+    };
+
     const cx = W / 2;
     const cy = H / 2;
-    const toWorld = 1 / SCALE; // map supersampled px -> CSS px
+    const toWorld = 1 / SCALE;
     const depthPx = size.h * depthRatio;
     const halfD = depthPx / 2;
-
+    const depthPointsPerColumn = Math.max(3, Math.round(depthSlices * 0.45));
     const points: number[] = [];
 
-    // 1) Front + back face fills.
     for (let py = 0; py < H; py += step) {
       for (let px = 0; px < W; px += step) {
-        if (!filled(px, py)) continue;
-        const wx = (px - cx) * toWorld;
+        if (!hasInkNearby(px, py)) continue;
+        const wx = (px - cx) * toWorld * xCompress;
         const wy = -(py - cy) * toWorld;
-        const jx = (Math.random() - 0.5) * step * 0.6 * toWorld;
-        const jy = (Math.random() - 0.5) * step * 0.6 * toWorld;
+        const jx = (rand() - 0.5) * step * 0.35 * toWorld;
+        const jy = (rand() - 0.5) * step * 0.35 * toWorld;
+
+        // Front + back anchor points keep silhouettes readable.
         points.push(wx + jx, wy + jy, halfD);
         points.push(wx + jx, wy + jy, -halfD);
-      }
-    }
 
-    // 2) Side walls.
-    const edgeStep = Math.max(1, Math.round(step * 0.6));
-    const slices = Math.max(2, depthSlices);
-    for (let py = 0; py < H; py += edgeStep) {
-      for (let px = 0; px < W; px += edgeStep) {
-        if (!filled(px, py)) continue;
-        if (
-          filled(px - 1, py) &&
-          filled(px + 1, py) &&
-          filled(px, py - 1) &&
-          filled(px, py + 1)
-        ) {
-          continue;
-        }
-        const wx = (px - cx) * toWorld;
-        const wy = -(py - cy) * toWorld;
-        for (let i = 0; i < slices; i++) {
-          const t = i / (slices - 1);
-          const z = -halfD + depthPx * t;
-          const jx = (Math.random() - 0.5) * 0.5;
-          const jy = (Math.random() - 0.5) * 0.5;
-          points.push(wx + jx, wy + jy, z);
+        // Fill each XY column with randomized Z samples so letters become
+        // a continuous cloud volume rather than stacked slice bands.
+        for (let i = 0; i < depthPointsPerColumn; i++) {
+          const z = -halfD + rand() * depthPx;
+          points.push(
+            wx + (rand() - 0.5) * toWorld * 0.55,
+            wy + (rand() - 0.5) * toWorld * 0.55,
+            z,
+          );
         }
       }
     }
 
-    return new Float32Array(points);
-  }, [size, text, fontFamily, fontWeight, fontSize, letterSpacing, pitch, depthRatio, depthSlices]);
+    const maxVerts = 95_000;
+    const pLen = points.length;
+    if (pLen / 3 <= maxVerts) {
+      return new Float32Array(points);
+    }
+    const stride = Math.ceil(pLen / 3 / maxVerts);
+    const thinned: number[] = [];
+    for (let i = 0; i < pLen; i += stride * 3) {
+      thinned.push(points[i], points[i + 1], points[i + 2]);
+    }
+    return new Float32Array(thinned);
+  }, [size, text, fontFamily, fontWeight, fontSize, letterSpacing, pitch, xCompress, depthRatio, depthSlices]);
 
-  const padX = size ? Math.round(size.h * depthRatio * 0.6) : 0;
-  const padY = size ? Math.round(size.h * 0.15) : 0;
+  const padX = size ? Math.round(size.h * depthRatio * 0.5) : 0;
+  const padY = size ? Math.round(size.h * 0.12) : 0;
   const boxW = size ? size.w + padX * 2 : 0;
   const boxH = size ? size.h + padY * 2 : 0;
   const orthoBounds = size
     ? { left: -boxW / 2, right: boxW / 2, top: boxH / 2, bottom: -boxH / 2 }
     : null;
+
+  const pointSize = Math.max(0.40, fontSize * 0.0040);
 
   return (
     <span
@@ -249,8 +269,9 @@ function PointCloudText({
           <Canvas
             orthographic
             dpr={[1, 2]}
+            gl={{ antialias: true, alpha: true }}
             camera={{
-              position: [0, 0, 1000],
+              position: [0, 0, 1200],
               near: 0.1,
               far: 5000,
               zoom: 1,
@@ -259,14 +280,10 @@ function PointCloudText({
               top: orthoBounds.top,
               bottom: orthoBounds.bottom,
             }}
-            gl={{ antialias: true, alpha: true }}
             style={{ background: "transparent" }}
           >
-            <PointCloudMesh
-              positions={positions}
-              pointSize={Math.max(1.4, fontSize * 0.022)}
-              color={dotColor}
-            />
+            <ambientLight intensity={0.85} />
+            <PointCloudMesh positions={positions} pointSize={pointSize} color={dotColor} />
           </Canvas>
         </div>
       )}
@@ -488,6 +505,7 @@ export function ScanToCadTitle({
 }) {
   const size = Math.round(84 * scale);
   const ink = "#2a2f3a";
+  const scanCloud = "#1f2430";
   return (
     <div
       className={className}
@@ -501,13 +519,14 @@ export function ScanToCadTitle({
     >
       <PointCloudText
         text="SCAN"
-        fontFamily="'Workbench', 'Major Mono Display', ui-monospace, monospace"
-        fontWeight={400}
+        fontFamily="'Bricolage Grotesque', 'Space Grotesk', 'Inter', sans-serif"
+        fontWeight={800}
         fontSize={size}
-        letterSpacing="0.04em"
-        pitch={2}
-        dotColor={ink}
-        depthRatio={0.32}
+        letterSpacing="-0.01em"
+        pitch={1.2}
+        dotColor={scanCloud}
+        xCompress={0.9}
+        depthRatio={0.16}
         depthSlices={16}
       />
 
