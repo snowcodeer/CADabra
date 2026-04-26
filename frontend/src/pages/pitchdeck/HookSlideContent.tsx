@@ -96,6 +96,8 @@ function PointCloud({ count, variant, className = "h-auto w-[112px] shrink-0" }:
 
 const hookPanel =
   `flex h-full min-h-[320px] flex-col items-center justify-center ${glassHudClass} p-6`;
+/** Slide 2 option cards: equal width/height in the md row; content vertically centered. */
+const hook2OptionPanel = `flex w-full min-h-0 flex-col items-center justify-center ${glassHudClass} p-6 md:min-w-0 md:flex-1 self-stretch`;
 
 /** Shrink-wrapped plate behind a single headline line (use inline text inside—no inner `block` or the band goes full width). */
 const hookHeadlinePlate =
@@ -353,51 +355,53 @@ export function Hook02Bottle() {
   return (
     <div className="relative left-1/2 flex h-full min-h-dvh w-screen max-w-[100vw] -translate-x-1/2 flex-col overflow-hidden stage-bg">
       <div className="hook-grid-48 pointer-events-none absolute inset-0" />
-      <div className="relative z-[1] mx-auto flex w-full min-h-dvh max-w-6xl flex-1 flex-col px-4 py-3 sm:px-6 sm:py-5 md:py-6">
-        <header className="text-center">
-          <h2 className="hook-stagger-0 m-0 flex w-full max-w-full flex-col items-center gap-2 sm:gap-1.5 md:gap-2">
-            <span className={hookHeadlinePlate}>
-              <span className="font-outfit text-3xl font-bold uppercase leading-[1.05] tracking-tight text-foreground sm:text-4xl md:text-5xl">
-                But how do I model
+      <div className="relative z-[1] flex w-full min-h-0 flex-1 flex-col items-center justify-center px-4 py-3 pb-20 sm:px-6 sm:py-4 sm:pb-24 md:py-5 md:pb-28">
+        <div className="w-full max-w-6xl shrink-0">
+          <header className="text-center">
+            <h2 className="hook-stagger-0 m-0 flex w-full max-w-full flex-col items-center gap-2 sm:gap-1.5 md:gap-2">
+              <span className={hookHeadlinePlate}>
+                <span className="font-outfit text-3xl font-bold uppercase leading-[1.05] tracking-tight text-foreground sm:text-4xl md:text-5xl">
+                  But how do I model
+                </span>
               </span>
-            </span>
-            <span className={hookHeadlinePlate}>
-              <span className="font-outfit text-3xl font-bold uppercase leading-[1.05] tracking-tight sm:text-4xl md:text-5xl">
-                <GradText>this bottle</GradText>
-                <span className="text-foreground">?</span>
+              <span className={hookHeadlinePlate}>
+                <span className="font-outfit text-3xl font-bold uppercase leading-[1.05] tracking-tight sm:text-4xl md:text-5xl">
+                  <GradText>this bottle</GradText>
+                  <span className="text-foreground">?</span>
+                </span>
               </span>
-            </span>
-          </h2>
-        </header>
+            </h2>
+          </header>
 
-        <div className="mt-8 grid min-h-0 flex-1 grid-cols-1 items-stretch gap-6 md:mt-10 md:grid-cols-3 md:gap-8">
-          <div className={`hook-card-left ${hookPanel} flex flex-col`}>
-            <p className="mb-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
-              Option A
-            </p>
-            <RulerIllustration />
-            <p className="font-outfit mt-4 text-xl font-semibold text-foreground">Measure with a ruler.</p>
-            <p className="mt-1 text-center text-base leading-relaxed text-muted-foreground">
-              Then redo every dimension by hand in CAD.
-            </p>
-          </div>
+          <div className="mt-8 flex w-full min-h-0 flex-col gap-6 md:mt-10 md:flex-row md:items-stretch md:gap-8">
+            <div className={`hook-card-left ${hook2OptionPanel}`}>
+              <p className="mb-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
+                Option A
+              </p>
+              <RulerIllustration />
+              <p className="font-outfit mt-4 text-xl font-semibold text-foreground">Measure with a ruler.</p>
+              <p className="mt-1 text-center text-base leading-relaxed text-muted-foreground">
+                Then redo every dimension by hand in CAD.
+              </p>
+            </div>
 
-          <div className="flex min-h-[280px] flex-col items-center justify-center">
-            <Hook02BottleSvg />
-            <p className="mt-4 max-w-md text-balance text-center text-sm font-medium leading-snug text-muted-foreground sm:text-base">
-              A scan is worth a thousand words
-            </p>
-          </div>
+            <div className="flex w-full min-h-0 flex-col items-center justify-center self-stretch py-2 md:min-w-0 md:flex-1 md:py-0">
+              <Hook02BottleSvg />
+              <p className="mt-4 max-w-md text-balance text-center text-sm font-medium leading-snug text-muted-foreground sm:text-base">
+                A scan is worth a thousand words
+              </p>
+            </div>
 
-          <div className={`hook-card-right ${hookPanel} flex flex-col`}>
-            <p className="mb-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
-              Option B
-            </p>
-            <PointCloud count={300} variant="slide2" />
-            <p className="font-outfit mt-4 text-xl font-semibold text-foreground">Scan it.</p>
-            <p className="mt-1 text-center text-base leading-relaxed text-muted-foreground">
-              Get a noisy point cloud. Now what?
-            </p>
+            <div className={`hook-card-right ${hook2OptionPanel}`}>
+              <p className="mb-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
+                Option B
+              </p>
+              <PointCloud count={300} variant="slide2" />
+              <p className="font-outfit mt-4 text-xl font-semibold text-foreground">Scan it.</p>
+              <p className="mt-1 text-center text-base leading-relaxed text-muted-foreground">
+                Get a noisy point cloud. Now what?
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -437,72 +441,75 @@ export function Hook03Cadabra() {
   return (
     <div className="relative left-1/2 flex h-full min-h-dvh w-screen max-w-[100vw] -translate-x-1/2 flex-col overflow-hidden stage-bg">
       <div className="hook-grid-48 pointer-events-none absolute inset-0" />
-      <div className="relative z-[1] mx-auto flex w-full min-h-dvh max-w-7xl flex-1 flex-col px-4 py-3 sm:px-6 sm:py-5 md:py-6">
-        <header className="text-center">
-          <h2 className="hook-s3-header-title m-0 flex w-full max-w-full flex-col items-center gap-2 sm:gap-1.5 md:gap-2">
-            <span className={hookHeadlinePlate}>
-              <span className="font-outfit text-3xl font-bold uppercase leading-[1.05] tracking-tight text-foreground sm:text-4xl md:text-5xl">
-                Mess in.
+      <div className="relative z-[1] mx-auto flex w-full min-h-dvh max-w-7xl flex-1 flex-col items-center justify-center px-4 py-3 sm:px-6 sm:py-5 md:py-6">
+        <div className="flex w-full max-w-7xl shrink-0 flex-col items-center">
+          <header className="w-full pt-12 text-center sm:pt-14 md:pt-[4.5rem]">
+            <h2 className="hook-s3-header-title m-0 flex w-full max-w-full flex-col items-center gap-2 sm:gap-1.5 md:gap-2">
+              <span className={hookHeadlinePlate}>
+                <span className="font-outfit text-3xl font-bold uppercase leading-[1.05] tracking-tight text-foreground sm:text-4xl md:text-5xl">
+                  Mess in.
+                </span>
               </span>
-            </span>
-            <span className={hookHeadlinePlate}>
-              <span className="font-outfit text-3xl font-bold uppercase leading-[1.05] tracking-tight text-foreground sm:text-4xl md:text-5xl">
-                <GradText>Editable geometry</GradText> out.
+              <span className={hookHeadlinePlate}>
+                <span className="font-outfit text-3xl font-bold uppercase leading-[1.05] tracking-tight text-foreground sm:text-4xl md:text-5xl">
+                  <GradText>Editable geometry</GradText> out.
+                </span>
               </span>
-            </span>
-          </h2>
-        </header>
+            </h2>
+          </header>
 
-        <div className="mt-8 grid min-h-0 flex-1 grid-cols-1 items-center gap-4 lg:mt-10 lg:grid-cols-11">
-          <div className="hook-s3-before flex justify-center lg:col-span-4">
-            <div className={`w-full max-w-md ${hookPanel}`}>
-              <p className="mb-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
-                Before
+          <div className="mt-8 grid w-full min-h-0 grid-cols-1 items-center gap-4 lg:mt-10 lg:grid-cols-11">
+            <div className="hook-s3-before flex justify-center lg:col-span-4">
+              <div className={`w-full max-w-md ${hookPanel}`}>
+                <p className="mb-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
+                  Before
+                </p>
+                <div className={hook3VizFrame}>
+                  <PointCloud count={260} variant="slide3" className="h-full w-full" />
+                </div>
+                <p className="mt-3 text-center text-base leading-relaxed text-muted-foreground">Noisy point cloud.</p>
+              </div>
+            </div>
+
+            <div className="hook-s3-arrow flex flex-col items-center justify-center gap-1 py-2 lg:col-span-3">
+              <p className="inline-flex flex-nowrap items-baseline justify-center gap-x-0 whitespace-nowrap text-center font-outfit text-2xl font-bold leading-none tracking-[-0.02em] text-foreground sm:text-3xl md:text-4xl">
+                <CadabraCadLockup
+                  cadLetterClassName="font-outfit text-2xl font-bold leading-none tracking-[-0.02em] text-foreground sm:text-3xl md:text-4xl"
+                  logoWrapperClassName="inline-block shrink-0 [aspect-ratio:352/402] h-[1.55cap] w-auto translate-y-[2px] align-baseline [font:inherit]"
+                />
+                <GradText>abra</GradText>
               </p>
-              <div className={hook3VizFrame}>
-                <PointCloud count={260} variant="slide3" className="h-full w-full" />
+              <svg width="52" height="24" viewBox="0 0 42 20" className="text-highlight" aria-hidden>
+                <path
+                  d="M2 10 L40 10 M32 4 L40 10 L32 16"
+                  className="stroke-current"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </svg>
+            </div>
+
+            <div className="hook-s3-after flex justify-center lg:col-span-4">
+              <div className={`w-full max-w-md ${hookPanel}`}>
+                <p className="mb-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-highlight">After</p>
+                <div className={hook3VizFrame}>
+                  <AfterBottleParametric className="h-full w-full" />
+                </div>
+                <p className="mt-3 text-center text-base leading-relaxed text-foreground/90">Editable parametric CAD.</p>
               </div>
-              <p className="mt-3 text-center text-base leading-relaxed text-muted-foreground">Noisy point cloud.</p>
             </div>
           </div>
 
-          <div className="hook-s3-arrow flex flex-col items-center justify-center gap-1 py-2 lg:col-span-3">
-            <p className="inline-flex flex-nowrap items-baseline justify-center gap-x-0 whitespace-nowrap text-center font-outfit text-2xl font-bold leading-none tracking-[-0.02em] text-foreground sm:text-3xl md:text-4xl">
-              <CadabraCadLockup
-                cadLetterClassName="font-outfit text-2xl font-bold leading-none tracking-[-0.02em] text-foreground sm:text-3xl md:text-4xl"
-              />
-              <GradText>abra</GradText>
-            </p>
-            <svg width="52" height="24" viewBox="0 0 42 20" className="text-highlight" aria-hidden>
-              <path
-                d="M2 10 L40 10 M32 4 L40 10 L32 16"
-                className="stroke-current"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-                vectorEffect="non-scaling-stroke"
-              />
-            </svg>
-          </div>
-
-          <div className="hook-s3-after flex justify-center lg:col-span-4">
-            <div className={`w-full max-w-md ${hookPanel}`}>
-              <p className="mb-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-highlight">After</p>
-              <div className={hook3VizFrame}>
-                <AfterBottleParametric className="h-full w-full" />
-              </div>
-              <p className="mt-3 text-center text-base leading-relaxed text-foreground/90">Editable parametric CAD.</p>
-            </div>
-          </div>
+          <p className="hook-s3-footer mt-2 w-full text-balance text-center text-base leading-relaxed sm:mt-2.5 sm:text-lg">
+            <span className="font-outfit text-2xl font-extrabold uppercase tabular-nums tracking-tight text-highlight sm:text-3xl md:text-4xl">
+              472 hours
+            </span>
+            <span className="text-muted-foreground"> saved per year per engineer.</span>
+          </p>
         </div>
-
-        <p className="hook-s3-footer mt-6 text-balance text-center text-base leading-relaxed sm:text-lg">
-          <span className="font-outfit text-2xl font-extrabold uppercase tabular-nums tracking-tight text-highlight sm:text-3xl md:text-4xl">
-            472 hours
-          </span>
-          <span className="text-muted-foreground"> saved per year per engineer.</span>
-        </p>
       </div>
     </div>
   );
