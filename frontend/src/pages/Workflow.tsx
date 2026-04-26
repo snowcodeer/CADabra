@@ -7,8 +7,10 @@ import {
 } from "lucide-react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Edges } from "@react-three/drei";
+import { Edges, Environment } from "@react-three/drei";
+import { Podium } from "@/components/cad/Podium";
 import { CanvasReflowText } from "@/components/workflow/CanvasReflowText";
+import { CadabraCadLockup } from "@/components/CadabraWordmark";
 import { ScanToCadTitle } from "@/components/workflow/ScanToCadTitle";
 import { LegoPodiumScene } from "@/components/workflow/LegoPodiumScene";
 
@@ -869,6 +871,11 @@ function easeInOut(t: number) {
     : 1 - Math.pow(-2 * t + 2, 5) / 2;
 }
 
+/** Sinusoidal in/out — very smooth, even acceleration for 360° spin. */
+function easeInOutSine(t: number) {
+  return 0.5 - 0.5 * Math.cos(Math.PI * clamp01(t));
+}
+
 /** Gentle ease-out for fades — starts quickly, settles softly. */
 function easeOut(t: number) {
   return 1 - Math.pow(1 - t, 3);
@@ -1072,41 +1079,35 @@ function UnfoldFoldScene({ elapsed }: UnfoldFoldSceneProps) {
   const shadowMatRef = useRef<THREE.MeshBasicMaterial>(null);
 
   /* ----------------- Sub-timeline (seconds within stage 4) -----------------
-   *  ~30% faster than before, and the reconstructed mesh ("bridge sphere")
-   *  is now the FRONT pane: it stays visible the entire sequence so there's
-   *  no cross-dissolve. The 5 surrounding panels (top/left/right/bottom/back)
-   *  fade in around it, fold up around it, spin with it, then fade away
-   *  to leave just the mesh.
+   *  ~16s total; bridge mesh = FRONT; five panels fade, fold, spin, reveal.
    *
-   *   0.0 →  2.5   FADE_IN     5 surrounding panels appear in sequence
-   *   2.5 →  2.9   HOLD_NET    brief settle so the eye registers the full net
-   *   2.9 →  4.4   ZOOM_OUT    camera pulls back (mesh stays put as front)
-   *   4.4 →  4.8   HOLD_WIDE   beat to read the layout before folding
-   *   4.8 →  7.0   FOLD        net folds into a cube as a SEQUENTIAL CASCADE
-   *                            (bottom → left → right → top → back) with a
-   *                            small back-ease overshoot on each panel so it
-   *                            "settles" into place rather than snapping shut.
-   *   7.0 →  7.4   HOLD_CUBE   beat on the closed cube
-   *   7.4 → 10.6   SPIN        cube does a single, slow 360° around Y
-   *  10.6 → 11.0   HOLD_SPUN   beat after the spin completes
-   *  11.0 → 12.3   REVEAL      surrounding panels fade out (mesh remains)
-   *  12.3 → end    AMBIENT     final mesh slowly rotating
+   *   0.0 →  2.9   FADE_IN
+   *   2.9 →  3.2   HOLD_NET
+   *   3.2 →  4.2   ZOOM_OUT    (wider on-screen: scale + camera look-down in Canvas)
+   *   4.2 →  4.7   HOLD_WIDE
+   *   4.7 →  7.2   FOLD
+   *   7.2 →  7.7   HOLD_CUBE
+   *   7.7 → 12.2   SPIN        360° with sine in/out easing
+   *  12.2 → 12.8   HOLD_SPUN
+   *  12.8 → 14.2   REVEAL
+   *  14.2 → ~16.0 AMBIENT
    * ------------------------------------------------------------------------ */
-  const FADE_IN_END   = 2.5;
-  const HOLD_NET_END  = 2.8;
-  const ZOOM_OUT_END  = 3.7;   // 0.9s zoom-out
-  const HOLD_WIDE_END = 4.1;
-  const FOLD_END      = 6.3;   // 2.2s fold window preserved
-  const HOLD_CUBE_END = 6.7;
-  const SPIN_END      = 9.9;
-  const HOLD_SPUN_END = 10.3;
-  const REVEAL_END    = 11.6;
+  const FADE_IN_END   = 2.9;
+  const HOLD_NET_END  = 3.2;
+  const ZOOM_OUT_END  = 4.2; // zoom-out: slightly longer + gentler
+  const HOLD_WIDE_END = 4.7;
+  const FOLD_END      = 7.2; // 2.5s fold window
+  const HOLD_CUBE_END = 7.7;
+  const SPIN_END      = 12.2; // ~4.5s 360 — slower, eased with easeInOutSine
+  const HOLD_SPUN_END = 12.8;
+  const REVEAL_END    = 14.2;
 
   // Zoom levels. ZOOM_IN is set so the bridge mesh appears at EXACTLY the
   // same on-screen size as the stage-3 sphere (zero-jump handoff).
   // Stage-3 camera at z=4.5, stage-4 camera at z=8.6 → ratio 8.6/4.5.
+  // ZOOM_OUT lower = pull back more on the net / cube (more in frame).
   const ZOOM_IN = 8.6 / 4.5; // ≈ 1.911
-  const ZOOM_OUT = 0.85;
+  const ZOOM_OUT = 0.76;
 
   // Order in which all 6 panels fade in. FRONT goes first (index 0) so it
   // appears in lockstep with the other panels. The bridge mesh (3D shaded
@@ -1271,11 +1272,12 @@ function UnfoldFoldScene({ elapsed }: UnfoldFoldSceneProps) {
       yRot = spinAnchorRef.current;
     } else if (elapsed < SPIN_END) {
       if (spinAnchorRef.current === null) spinAnchorRef.current = 0;
-      const k = easeInOut((elapsed - HOLD_CUBE_END) / (SPIN_END - HOLD_CUBE_END));
+      const u = (elapsed - HOLD_CUBE_END) / (SPIN_END - HOLD_CUBE_END);
+      const k = easeInOutSine(u);
       yRot = spinAnchorRef.current + k * Math.PI * 2;
     } else {
       const finalAnchor = (spinAnchorRef.current ?? 0) + Math.PI * 2;
-      yRot = finalAnchor + (elapsed - SPIN_END) * 0.18;
+      yRot = finalAnchor + (elapsed - SPIN_END) * 0.12;
     }
     sharedRotation.y = yRot;
     if (groupRef.current) {
@@ -1506,23 +1508,39 @@ function AxisGizmo() {
   );
 }
 
-/* ---------------- Stage 5: revealed mesh ----------------
- * The final, slowly-rotating reconstructed mesh. Sourced from the same
- * useReconstructedGeometry hook so it'll automatically pick up the user's
- * real .ply mesh once that lands. */
-function RevealedMesh() {
+/* ---------------- Stage 5: mesh on the site Podium (same as / workflow hero) ---------------- */
+/** Top of the `Podium` upper disc in local space (matches LegoPodiumScene layout). */
+const PODIUM_DECK_Y = 0.05;
+
+function RevealedMeshOnPodium() {
   const meshRef = useRef<THREE.Group>(null);
   const sourceGeometry = useReconstructedGeometry();
+  const yLift = useMemo(() => {
+    const g = sourceGeometry;
+    g.computeBoundingBox();
+    const bb = g.boundingBox;
+    if (!bb) return 1.4;
+    return PODIUM_DECK_Y - bb.min.y;
+  }, [sourceGeometry]);
+
   useFrame((_, delta) => {
     if (meshRef.current) {
       sharedRotation.y += delta * 0.18;
       meshRef.current.rotation.y = sharedRotation.y;
     }
   });
+
   return (
-    <group ref={meshRef}>
-      <mesh geometry={sourceGeometry}>
-        <meshStandardMaterial color="#f5f7fa" roughness={0.32} metalness={0.15} />
+    <group>
+      <Podium />
+      <group ref={meshRef} position={[0, yLift, 0]}>
+        <mesh geometry={sourceGeometry} castShadow receiveShadow>
+          <meshStandardMaterial color="#f5f7fa" roughness={0.32} metalness={0.15} />
+        </mesh>
+      </group>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.55, 0]} receiveShadow>
+        <planeGeometry args={[12, 12]} />
+        <shadowMaterial transparent opacity={0.16} />
       </mesh>
     </group>
   );
@@ -1635,28 +1653,16 @@ interface PhaseStep {
 }
 
 const PHASE_STEPS: Record<2 | 3 | 4, PhaseStep[]> = {
-  // Stage 2 (2.5s total) — denoising the raw scan
   2: [
     { at: 0.0, label: "", text: "Filtering noise from the raw scan" },
-    { at: 1.3, label: "", text: "Stabilising point density" },
   ],
-  // Stage 3 (4.3s total) — HOLD_END=0.7, BUILD_END=2.8, points fade after
   3: [
-    { at: 0.0, label: "", text: "Holding the cleaned point cloud" },
     { at: 0.7, label: "", text: "Stitching triangles across the surface" },
-    { at: 2.8, label: "", text: "Resolving the watertight mesh" },
-    { at: 3.4, label: "", text: "Fading the underlying points" },
   ],
-  // Stage 4 (13.1s total) — see UnfoldFoldScene timeline
   4: [
     { at: 0.0,  label: "", text: "Projecting orthographic views around the mesh" },
-    { at: 2.5,  label: "", text: "Holding the unfolded net" },
-    { at: 2.8,  label: "", text: "Pulling the camera back to reveal the layout" },
-    { at: 4.1,  label: "", text: "Folding the net into a closed cube" },
-    { at: 6.3,  label: "", text: "Holding the assembled cube" },
-    { at: 6.7,  label: "", text: "Rotating the cube a full 360°" },
-    { at: 9.9,  label: "", text: "Holding after the spin" },
-    { at: 11.0, label: "", text: "Dissolving the cube, exposing the mesh" },
+    { at: 4.5,  label: "", text: "Folding the net into a closed cube" },
+    { at: 12.7, label: "", text: "Dissolving the cube, exposing the mesh" },
   ],
 };
 
@@ -1699,26 +1705,21 @@ function PhaseNarration({ stage, elapsed }: { stage: Stage; elapsed: number }) {
   if (!steps) return null;
   const active = steps[activeIdx];
 
+  const lineClass =
+    "m-0 w-full max-w-full text-balance text-sm font-normal leading-snug tracking-[-0.01em] text-foreground/90 [text-rendering:optimizeLegibility] sm:leading-6 sm:text-[0.9rem]";
+
   return (
-    <div className="pointer-events-none absolute left-2 top-1/2 z-20 w-[min(22rem,92vw)] max-w-[460px] -translate-y-1/2 sm:left-6 sm:w-[min(24rem,88vw)] md:left-9 lg:left-10">
-      {/* Single line, flip transition. The wrapper preserves vertical
-          space so the layout doesn't jump while the line is mid-flip. */}
+    <div className="pointer-events-none absolute left-2 top-1/2 z-20 w-[min(23rem,92vw)] max-w-md -translate-y-1/2 sm:left-5 sm:pl-0.5 md:left-7 lg:left-8">
       <div
-        className="relative h-6 overflow-visible text-[13px] font-light leading-6 tracking-tight text-foreground/85"
-        style={{ perspective: "600px" }}
+        className="relative min-h-[2.4rem] w-full overflow-visible pr-0.5 sm:min-h-9"
+        style={{ perspective: "720px" }}
       >
         {prevKey && (
-          <p
-            key={prevKey}
-            className="phase-flip-out absolute inset-0 m-0 whitespace-nowrap"
-          >
+          <p key={prevKey} className={`phase-flip-out absolute left-0 top-0 max-w-full ${lineClass} text-foreground/75`}>
             {prevText}
           </p>
         )}
-        <p
-          key={phaseKey}
-          className="phase-flip-in absolute inset-0 m-0 whitespace-nowrap"
-        >
+        <p key={phaseKey} className={`phase-flip-in absolute left-0 top-0 max-w-full ${lineClass}`}>
           {active.text}
         </p>
       </div>
@@ -1736,10 +1737,10 @@ const Workflow = () => {
   // Per-stage durations (ms). Stage 4 hosts the unfold→fold→spin→fade
   // showcase, so it gets the most time.
   const STAGE_DURATIONS: Record<Exclude<Stage, 0 | 5>, number> = {
-    1: 2500,
-    2: 2500,
-    3: 4300,
-    4: 13100,
+    1: 3000,
+    2: 3000,
+    3: 5000,
+    4: 16000,
   };
 
   // Weights used to compute an overall pipeline progress (0–100).
@@ -1830,10 +1831,10 @@ const Workflow = () => {
           <ArrowLeft className="h-4 w-4 shrink-0" strokeWidth={1.8} />
           <span>Back</span>
         </Link>
-        <div>
-          <span className="font-wordmark text-[length:clamp(1.35rem,calc(0.5rem+1.1vw),1.85rem)] font-bold leading-none tracking-[-0.02em] text-foreground sm:text-3xl">
-            CAD
-          </span>
+        <div className="inline-flex items-baseline gap-0">
+          <CadabraCadLockup
+            cadLetterClassName="font-wordmark text-[length:clamp(1.35rem,calc(0.5rem+1.1vw),1.85rem)] font-bold leading-none tracking-[-0.02em] text-foreground sm:text-3xl"
+          />
           <span className="font-wordmark text-[length:clamp(1.35rem,calc(0.5rem+1.1vw),1.85rem)] font-light italic leading-none tracking-[-0.02em] text-foreground/80 sm:text-3xl">
             abra
           </span>
@@ -1961,12 +1962,14 @@ const Workflow = () => {
             {stage === 4 && (
               <Canvas
                 dpr={[1, 2]}
-                /* Straight-on camera so the unfolded T-cross net reads as a
-                   flat orthographic-style layout when stage 4 mounts. Same
-                   FOV as stage 3 for perfect continuity. */
-                camera={{ position: [0, 0, 8.6], fov: 38 }}
+                /* Slightly elevated + gentle look-down: more of the net in frame, friendlier read. */
+                camera={{ position: [0, 0.4, 8.5], fov: 38 }}
                 gl={{ antialias: true, alpha: true }}
-                onCreated={({ camera }) => camera.lookAt(0, 0, 0)}
+                onCreated={({ camera }) => {
+                  camera.position.set(0, 0.4, 8.5);
+                  camera.up.set(0, 1, 0);
+                  camera.lookAt(0, -0.1, 0);
+                }}
               >
                 {/* Lighting matched to stage 3 so the bridge sphere has the
                     exact same shading the moment stage 4 mounts — no flash. */}
@@ -1997,16 +2000,36 @@ const Workflow = () => {
                 {/* RIGHT: rotating mesh slides into place + Next button */}
                 <div className="mesh-shift-right relative flex min-h-0 flex-1 items-center justify-center max-md:min-h-[45vh]">
                   <Canvas
+                    shadows
                     dpr={[1, 2]}
-                    camera={{ position: [0, 2.6, 8.6], fov: 38 }}
+                    camera={{ position: [0, 1.35, 9.6], fov: 32 }}
                     gl={{ antialias: true, alpha: true }}
-                    onCreated={({ camera }) => camera.lookAt(0, 0, 0)}
+                    onCreated={({ camera }) => {
+                      camera.position.set(0, 1.35, 9.6);
+                      camera.up.set(0, 1, 0);
+                      // Slight look-down: aim just below the mesh/podium centroid (same read as hero podium).
+                      camera.lookAt(0, 0.4, 0);
+                    }}
                   >
-                    <ambientLight intensity={0.85} />
-                    <directionalLight position={[4, 5, 3]} intensity={0.7} />
-                    <directionalLight position={[-3, -2, -1]} intensity={0.25} />
+                    <ambientLight intensity={0.68} />
+                    <directionalLight
+                      position={[5, 8, 4]}
+                      intensity={0.78}
+                      castShadow
+                      shadow-mapSize-width={1024}
+                      shadow-mapSize-height={1024}
+                      shadow-camera-near={0.4}
+                      shadow-camera-far={24}
+                      shadow-camera-left={-6}
+                      shadow-camera-right={6}
+                      shadow-camera-top={6}
+                      shadow-camera-bottom={-6}
+                      shadow-bias={-0.0004}
+                    />
+                    <directionalLight position={[-4, 2.5, -2]} intensity={0.28} />
                     <Suspense fallback={null}>
-                      <RevealedMesh />
+                      <Environment preset="studio" environmentIntensity={0.52} />
+                      <RevealedMeshOnPodium />
                     </Suspense>
                   </Canvas>
                   <button

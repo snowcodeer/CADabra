@@ -431,7 +431,8 @@ export function LandingHeroModel() {
           makeDefault
           enableDamping
           dampingFactor={0.08}
-          enablePan
+          enablePan={false}
+          enableZoom={false}
           minPolarAngle={0.15}
           maxPolarAngle={Math.PI - 0.1}
           minDistance={1.2}
