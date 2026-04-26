@@ -33,6 +33,12 @@ ProfileShape = Literal[
     # axis and +y along its vertical axis. Use this when the profile
     # isn't a clean rectangle/circle.
     "polyline",
+    # Hybrid outline made of straight segments AND circular arcs in a
+    # single closed loop. ``arc_line_segments`` is REQUIRED. This is the
+    # right primitive for D-cuts (arc + line + arc + line), rounded
+    # rectangles, racetracks / obrounds, and any silhouette that mixes
+    # straight edges with curved sections without being a single primitive.
+    "arc_line",
 ]
 SketchPlane = Literal[
     # Absolute world planes (only valid for the FIRST operation).
@@ -50,6 +56,48 @@ def _check_positive(v: Optional[float], field: str) -> Optional[float]:
     if v is not None and v <= 0:
         raise ValueError(f"{field} must be > 0 mm when provided")
     return v
+
+
+# ---------------------------------------------------------------------------
+# ArcLineSegment — one piece of a hybrid arc+line closed outline
+# ---------------------------------------------------------------------------
+class ArcLineSegment(BaseModel):
+    """One segment of an arc_line profile.
+
+    All coordinates are in world mm relative to the sketch-plane centre
+    (workplane origin after CenterOfBoundBox), matching the convention
+    used by ``polyline`` profiles. The closed loop is implied by the
+    order of segments: each segment's ``end`` should equal the next
+    segment's ``start`` (within builder tolerance).
+
+    For ``kind == "line"``: ``start`` and ``end`` define the segment;
+    ``arc_centre`` / ``arc_radius_mm`` are ignored.
+
+    For ``kind == "arc"``: ``start``, ``end``, ``arc_centre`` and
+    ``arc_radius_mm`` together define the arc. Builder emits
+    ``.threePointArc((midpoint), (end))`` where ``midpoint`` is computed
+    on the arc.
+    """
+
+    kind: Literal["line", "arc"]
+    start: Tuple[float, float]
+    end: Tuple[float, float]
+    arc_centre: Optional[Tuple[float, float]] = None
+    arc_radius_mm: Optional[float] = None
+    # Sweep convention: positive = CCW (counter-clockwise) around the
+    # centre. Builder uses this to pick the correct mid-arc point.
+    arc_ccw: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def _check_arc_fields(self) -> "ArcLineSegment":
+        if self.kind == "arc":
+            if self.arc_centre is None or self.arc_radius_mm is None:
+                raise ValueError(
+                    "arc segment requires arc_centre and arc_radius_mm"
+                )
+            if self.arc_radius_mm <= 0:
+                raise ValueError("arc_radius_mm must be > 0")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +145,13 @@ class Profile2D(BaseModel):
         description="Diameter for shape='circle'. If omitted, builder uses "
         "min(width_mm, depth_mm).",
     )
+    arc_line_segments: Optional[list[ArcLineSegment]] = Field(
+        None,
+        description="For shape='arc_line' (REQUIRED): ordered list of line "
+        "and arc segments forming a closed loop. Each segment's end should "
+        "equal the next segment's start; builder closes the loop after the "
+        "final segment.",
+    )
 
     @field_validator("width_mm", "depth_mm", mode="after")
     @classmethod
@@ -114,6 +169,11 @@ class Profile2D(BaseModel):
             if not self.vertices or len(self.vertices) < 3:
                 raise ValueError(
                     "shape='polyline' requires at least 3 vertices in mm"
+                )
+        if self.shape == "arc_line":
+            if not self.arc_line_segments or len(self.arc_line_segments) < 2:
+                raise ValueError(
+                    "shape='arc_line' requires at least 2 arc_line_segments"
                 )
         return self
 
