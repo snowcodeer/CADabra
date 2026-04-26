@@ -167,6 +167,62 @@ class DepthTier:
 
 
 @dataclass
+class CrossSectionHole:
+    """An interior hole inside a CrossSection (pipe lumen, bore, slot)."""
+    polygon_px: list[tuple[int, int]]
+    bbox_px: tuple[int, int, int, int]
+    centre_xy: tuple[float, float]
+    area_px: float
+    circularity: float
+    equivalent_diameter_px: float
+    outline: list["OutlineSegment"]
+
+
+@dataclass
+class CrossSection:
+    """Bounded 2D cross-section of the part at a specific position along
+    one axis. Produced by the slicing pass — distinct from TierRegion
+    (depth-tier based) because slicing computes the actual material at
+    a slice plane via per-pixel min/max from opposite views, then
+    enforces a single closed OUTER contour PLUS records any interior
+    holes (annular cross-sections like pipe lumens, blind bores).
+    """
+    axis: str                         # "X" | "Y" | "Z"
+    position_norm: float              # [0, 1] in the part's bbox along axis
+    polygon_px: list[tuple[int, int]]
+    bbox_px: tuple[int, int, int, int]
+    area_px: float
+    outline: list["OutlineSegment"]
+    smooth_polyline_px: list[tuple[int, int]]
+    holes: list[CrossSectionHole]     # interior holes (CCOMP hierarchy)
+
+
+@dataclass
+class AxisZone:
+    """A plateau region between two transitions in the area-vs-position
+    curve. Each zone has a constant cross-section that becomes one
+    extrude operation.
+    """
+    axis: str
+    start_norm: float        # zone start position [0, 1] (inclusive)
+    end_norm: float          # zone end position [0, 1] (exclusive)
+    cross_section: CrossSection
+
+
+@dataclass
+class AxisSlices:
+    """All slices along one axis, plus the per-zone cross-sections that
+    survived the bounded-shape validation.
+    """
+    axis: str
+    n_slices: int
+    positions_norm: list[float]
+    areas_px: list[int]
+    transitions_idx: list[int]
+    zones: list[AxisZone]
+
+
+@dataclass
 class TierRegion:
     """A closed silhouette region living at a specific depth tier.
 
@@ -1047,6 +1103,459 @@ def segment_view(name: str, depth_panel: np.ndarray, silhouette_panel: np.ndarra
         smooth_polyline_px=smooth_poly,
         tier_regions=tier_regions,
     )
+
+
+# ---------------------------------------------------------------------------
+# Slice-based axis volume extraction
+# ---------------------------------------------------------------------------
+# Why slice the part: depth-tier histogram peak finding picks "where most
+# pixels share a depth value" — but a sketch plane really lives wherever
+# the cross-sectional AREA has a sudden change. A 5-step staircase has
+# 5 area plateaus separated by 4 transitions; tier peaks on the depth
+# histogram lump them together if their luma values are similar.
+#
+# To slice, we need per-pixel min/max along the slicing axis. Two
+# opposite views give us that: the "low" view (e.g. Top of Z axis: high z
+# = small luma = nearer +Z camera) tells us the part's TOP at each (x, y);
+# the "high" view (Bottom) tells us its BOTTOM. The pixel column at (x, y)
+# spans [bot, top]. Slicing at z_k gives the cross-section as the set of
+# (x, y) where bot < z_k < top.
+#
+# Bounded-shape enforcement: each slice mask is morphologically closed
+# to fill rendering gaps, then ``cv2.findContours`` with RETR_EXTERNAL
+# extracts only the outer boundary. Slices below an area threshold are
+# rejected so a single noisy pixel run never becomes an "extrude".
+
+# Slicing tunables.
+SLICE_LUMA_NEAR = 60     # synthesize_clean_views encodes nearest = luma 60
+SLICE_LUMA_FAR = 230     # farthest = luma 230 (60 + 170*1.0)
+SLICE_LUMA_RANGE = SLICE_LUMA_FAR - SLICE_LUMA_NEAR
+SLICE_DEFAULT_N = 60     # ~60 slices gives a 1.6% resolution along an axis
+SLICE_AREA_MIN_FRAC = 0.005      # cross-section area must be >= 0.5% of panel
+# Transition threshold: |dA| must exceed this fraction of MAX_AREA (not
+# max |dA|). Scaling with max(|dA|) trips on every plateau jitter; scaling
+# with max(area) only fires on real cross-section changes (e.g. the
+# 13000→7000 drop between two stepped octagonal tiers is 46% of max area
+# = a clear transition; a 13238→13200 jitter on a flat tier is 0.3%).
+SLICE_TRANSITION_FRAC_OF_MAX_AREA = 0.08
+# After detection, merge transitions that sit within this many slices of
+# each other into ONE (their centre). A multi-slice "ramp" between two
+# tiers shows up as several consecutive transitions; without merging we'd
+# emit 4 zones for a 2-tier transition.
+SLICE_TRANSITION_MERGE_RADIUS = 3
+# Smoothing kernel = 3: enough to suppress single-bin noise, NOT enough
+# to wash out a real one-step area drop. Larger kernels (7+) blur the
+# transition between adjacent tiers into a slow ramp the threshold then
+# misses entirely (113K's tier change at slice 12 disappeared with k=7).
+SLICE_SMOOTH_KERNEL = 3
+SLICE_MORPH_KERNEL = 5
+# Regular polygon detection. A regular N-gon has equal edge lengths,
+# equal interior angles, and vertices equidistant from the centroid.
+# When a closed outline matches this pattern we emit a perfect regular
+# polygon (computed from centroid + radius + N + rotation) instead of
+# the noisy approxPolyDP vertex list. STEP exports preserve the
+# parametric polygon constraint instead of discretizing it.
+REGULAR_POLY_MIN_SIDES = 5            # 3/4-sided handled by triangle/rect classifiers
+REGULAR_POLY_MAX_SIDES = 12
+# Two strict gates: vertices must lie on a circle (radius stdev tight)
+# AND must be spread roughly evenly around it (angular gap ratio tight).
+# The angular check is what distinguishes a regular polygon from a
+# D-cut whose vertices cluster on the curved arcs with big angular
+# gaps where the flat cuts sit.
+REGULAR_POLY_EDGE_LEN_TOL = 0.35      # loose: the snap rebuild fixes it
+REGULAR_POLY_RADIUS_TOL = 0.13        # vertices must lie on a circle
+REGULAR_POLY_ANGLE_TOL_DEG = 15.0     # loose: the snap rebuild fixes it
+# Largest angular gap between consecutive vertices must be at most this
+# multiple of the expected uniform gap (360/N). Loosened to 1.7 — the
+# tighter 1.4 over-rejected genuine octagons that gpt-image-2 cleanup
+# wobbled a bit. False D-cut positives are still caught by the
+# epsilon cap (see inferencer: only eps_frac <= 0.020 considered).
+REGULAR_POLY_ANG_GAP_RATIO_MAX = 1.7
+
+
+# Cross-sections may contain INTERIOR HOLES (a slice through a pipe is
+# an annulus, not a disc). CrossSection records hole contours alongside
+# the outer outline; the inferencer turns each hole into a cut operation
+# after the zone extrude.
+SLICE_HOLE_MIN_AREA_FRAC = 0.001    # hole must be >= 0.1% of panel
+SLICE_HOLE_MIN_AREA_VS_OUTER = 0.005  # hole must be >= 0.5% of its outer contour
+# Drop zones whose cross-section area is within this fraction of the
+# previous zone's area — they're really the same plateau split by a
+# spurious transition that survived the merge.
+SLICE_ZONE_DEDUP_AREA_FRAC = 0.12
+
+
+def _luma_to_depth_norm(luma: np.ndarray) -> np.ndarray:
+    """Convert depth panel luma to normalized depth in [0, 1]
+    (0 = nearest to camera, 1 = farthest)."""
+    return np.clip(
+        (luma.astype(np.float32) - SLICE_LUMA_NEAR) / SLICE_LUMA_RANGE,
+        0.0, 1.0,
+    )
+
+
+def _axis_volume(
+    panels: dict[str, tuple[np.ndarray, np.ndarray]], axis: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """Per-pixel (low_norm, high_norm, valid_mask) along ``axis``.
+
+    The "low" output is the smaller-coordinate boundary along the axis
+    (e.g. for Z it's the part's BOTTOM at each (x, y) column). "high" is
+    the larger-coordinate boundary (Z TOP). Both are normalized to [0, 1]
+    where 0 = the part's most-negative-axis extent and 1 = the most-
+    positive-axis extent.
+
+    The opposite-view alignment per axis (read from
+    ``synthesize_clean_views.VIEW_DIRS``):
+
+      Z: Top (camera +Z, up=+Y, right=+X)     ↔ Bottom (up=-Y, right=+X)
+         → flip Bottom vertically (axis 0)
+      Y: Front (camera -Y, up=+Z, right=+X)   ↔ Back (up=+Z, right=-X)
+         → flip Back horizontally (axis 1)
+      X: Right (camera -X, up=+Z, right=-Y)   ↔ Left (up=+Z, right=+Y)
+         → flip Left horizontally (axis 1)
+    """
+    if axis == "Z":
+        lo_v, hi_v = "Top", "Bottom"
+        flip_axis = 0
+        # Top: small luma = high z. Bottom: small luma = low z.
+        invert_lo = True
+        invert_hi = False
+    elif axis == "Y":
+        lo_v, hi_v = "Front", "Back"
+        flip_axis = 1
+        # Front: small luma = LOW y. Back: small luma = HIGH y.
+        invert_lo = False
+        invert_hi = True
+    elif axis == "X":
+        lo_v, hi_v = "Right", "Left"
+        flip_axis = 1
+        # Right: small luma = LOW x. Left: small luma = HIGH x.
+        invert_lo = False
+        invert_hi = True
+    else:
+        return None
+
+    if lo_v not in panels or hi_v not in panels:
+        return None
+    lo_depth, lo_sil = panels[lo_v]
+    hi_depth, hi_sil = panels[hi_v]
+    hi_depth_aligned = np.flip(hi_depth, axis=flip_axis)
+    hi_sil_aligned = np.flip(hi_sil, axis=flip_axis)
+
+    lo_norm = _luma_to_depth_norm(lo_depth)
+    hi_norm = _luma_to_depth_norm(hi_depth_aligned)
+
+    # When invert_lo / invert_hi is True, the lower-luma value of that
+    # view corresponds to the HIGH world coordinate — flip the normalized
+    # value so both arrays map to the same "0=part_min, 1=part_max" frame.
+    low_world = (1.0 - lo_norm) if invert_lo else lo_norm
+    high_world = (1.0 - hi_norm) if invert_hi else hi_norm
+
+    # The "low" view sees the closer-to-camera surface, which is the
+    # MAX coordinate for an inverted view (Top for Z) or the MIN for a
+    # non-inverted view (Front for Y). Reconcile:
+    if invert_lo:
+        # Top: low_world holds the part's TOP z at each pixel = HIGH z
+        # so this is actually the "high" boundary, and the other view is
+        # the "low" boundary. Swap labels.
+        max_per_pixel = low_world
+        min_per_pixel = high_world
+    else:
+        # Front: low_world holds the part's LOW y = the "low" boundary.
+        min_per_pixel = low_world
+        max_per_pixel = high_world
+
+    valid = lo_sil & hi_sil_aligned
+    return min_per_pixel, max_per_pixel, valid
+
+
+def detect_regular_polygon(
+    polygon_px: list[tuple[int, int]],
+) -> tuple[int, float, float, tuple[float, float]] | None:
+    """Detect whether a polygon is a REGULAR N-gon (equal edges, equal
+    angles, vertices equidistant from centroid).
+
+    Returns (n_sides, radius_px, rotation_rad, centre_xy) if regular,
+    else None. Rotation is the angle (rad) from centroid to vertex 0,
+    measured counter-clockwise from the +X axis. Caller can reconstruct
+    every vertex as ``(centre_x + r*cos(rot + 2*pi*i/n),
+                          centre_y + r*sin(rot + 2*pi*i/n))``.
+    """
+    n = len(polygon_px)
+    if n < REGULAR_POLY_MIN_SIDES or n > REGULAR_POLY_MAX_SIDES:
+        return None
+    pts = np.array(polygon_px, dtype=np.float64)
+    centre = pts.mean(axis=0)
+    rs = np.linalg.norm(pts - centre, axis=1)
+    if rs.mean() <= 0:
+        return None
+    if rs.std() / rs.mean() > REGULAR_POLY_RADIUS_TOL:
+        return None
+
+    # Edge lengths.
+    edges = np.linalg.norm(pts - np.roll(pts, -1, axis=0), axis=1)
+    if edges.mean() <= 0:
+        return None
+    if edges.std() / edges.mean() > REGULAR_POLY_EDGE_LEN_TOL:
+        return None
+
+    # Interior angle at each vertex should equal 180*(n-2)/n.
+    expected_interior = 180.0 * (n - 2) / n
+    for i in range(n):
+        p_prev = pts[(i - 1) % n]
+        p_this = pts[i]
+        p_next = pts[(i + 1) % n]
+        v1 = p_prev - p_this
+        v2 = p_next - p_this
+        n1 = np.linalg.norm(v1) or 1.0
+        n2 = np.linalg.norm(v2) or 1.0
+        cos = float(np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0))
+        angle = float(np.degrees(np.arccos(cos)))
+        if abs(angle - expected_interior) > REGULAR_POLY_ANGLE_TOL_DEG:
+            return None
+
+    # Angular uniformity: vertices should spread evenly around the
+    # centroid. D-cuts have low radius stdev too (vertices on a circle)
+    # but their angular gaps are far from uniform — tight clusters on
+    # the curved arcs and large gaps across the flat cuts.
+    angles = np.arctan2(pts[:, 1] - centre[1], pts[:, 0] - centre[0])
+    angles_sorted = np.sort(angles)
+    gaps = np.diff(np.concatenate([angles_sorted, [angles_sorted[0] + 2 * np.pi]]))
+    expected_gap = 2 * np.pi / n
+    if gaps.max() > REGULAR_POLY_ANG_GAP_RATIO_MAX * expected_gap:
+        return None
+
+    # Rotation = angle to vertex 0 (in image coords; caller converts to
+    # workplane convention with the y-flip).
+    v0 = pts[0] - centre
+    rotation = float(np.arctan2(v0[1], v0[0]))
+    return (
+        int(n),
+        float(rs.mean()),
+        rotation,
+        (float(centre[0]), float(centre[1])),
+    )
+
+
+def _polygon_from_contour(c: np.ndarray) -> tuple[
+    list[tuple[int, int]], tuple[int, int, int, int],
+]:
+    perim = float(cv2.arcLength(c, closed=True))
+    eps = max(1.0, perim * POLY_APPROX_EPSILON_FRAC)
+    poly = cv2.approxPolyDP(c, eps, closed=True).reshape(-1, 2)
+    bx, by, bw, bh = cv2.boundingRect(c)
+    return ([(int(p[0]), int(p[1])) for p in poly],
+            (int(bx), int(by), int(bw), int(bh)))
+
+
+def _slice_axis(
+    panels: dict[str, tuple[np.ndarray, np.ndarray]],
+    axis: str, n_slices: int,
+) -> AxisSlices | None:
+    vol = _axis_volume(panels, axis)
+    if vol is None:
+        return None
+    lo, hi, valid = vol
+    panel_area = float(lo.size)
+    area_min = panel_area * SLICE_AREA_MIN_FRAC
+
+    positions = np.linspace(0.02, 0.98, n_slices)
+    areas: list[int] = []
+    masks: list[np.ndarray] = []
+    morph_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (SLICE_MORPH_KERNEL, SLICE_MORPH_KERNEL),
+    )
+    for k in positions:
+        in_part = (lo < k) & (k < hi) & valid
+        m = (in_part.astype(np.uint8)) * 255
+        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, morph_kernel, iterations=1)
+        bool_m = m > 0
+        masks.append(bool_m)
+        areas.append(int(bool_m.sum()))
+
+    areas_arr = np.array(areas, dtype=np.float32)
+    if SLICE_SMOOTH_KERNEL > 1:
+        smoothed = np.convolve(
+            areas_arr,
+            np.ones(SLICE_SMOOTH_KERNEL) / SLICE_SMOOTH_KERNEL,
+            mode="same",
+        )
+    else:
+        smoothed = areas_arr
+    # Use a 2-slice lag for the area difference. This catches transitions
+    # that are spread over a 2-bin ramp (very common: gpt-image-2 cleanup
+    # softens sharp tier boundaries into a 1-2 slice gradient). A pure
+    # 1-slice diff misses those because the per-bin change is smaller.
+    da_lag = np.abs(smoothed[2:] - smoothed[:-2])
+    # Pad on both sides so transition indices align with slice midpoints.
+    da = np.concatenate([[da_lag[0]], da_lag, [da_lag[-1]]])[:len(smoothed) - 1]
+    if da.size == 0 or smoothed.max() == 0:
+        transitions = []
+    else:
+        # Threshold against MAX AREA, not max |dA|. Plateaus with small
+        # noise produce |dA| spikes too; only a real cross-section change
+        # is "large" relative to the part's overall scale.
+        threshold = max(
+            SLICE_TRANSITION_FRAC_OF_MAX_AREA * float(smoothed.max()),
+            area_min,
+        )
+        raw = [int(i) for i in np.where(da > threshold)[0].tolist()]
+        # Merge transitions that cluster together (a single multi-slice
+        # ramp between tiers shows up as 3-5 adjacent transitions; we
+        # only want one boundary, placed at the cluster centre).
+        transitions: list[int] = []
+        for t in raw:
+            if transitions and t - transitions[-1] <= SLICE_TRANSITION_MERGE_RADIUS:
+                continue
+            transitions.append(t)
+
+    # Build zones: bracket of slices between consecutive transitions
+    # (or between bbox start/end and the nearest transition). For each
+    # zone, take the cross-section at its midpoint slice and pull both
+    # the outer contour AND any interior holes (RETR_CCOMP hierarchy).
+    boundaries = [0] + [t + 1 for t in transitions] + [len(positions)]
+    boundaries = sorted(set(boundaries))
+    panel_area_total = float(lo.size)
+    hole_min_area_abs = panel_area_total * SLICE_HOLE_MIN_AREA_FRAC
+    zones: list[AxisZone] = []
+    for s, e in zip(boundaries[:-1], boundaries[1:]):
+        if e - s < 1:
+            continue
+        midpoint = (s + e) // 2
+        if midpoint >= len(masks):
+            continue
+        slice_mask = masks[midpoint]
+        if slice_mask.sum() < area_min:
+            continue
+        # CCOMP gives 2-level hierarchy: outer contours at level 0,
+        # their holes at level 1. The hierarchy's parent index lets
+        # us pair each hole with its outer contour.
+        contours, hierarchy = cv2.findContours(
+            slice_mask.astype(np.uint8) * 255,
+            cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE,
+        )
+        if not contours or hierarchy is None:
+            continue
+        # hierarchy shape: (1, N, 4) where each row is [next, prev, child, parent]
+        hier = hierarchy[0]
+        # Outer contours = parent == -1.
+        outer_indices = [i for i in range(len(contours)) if hier[i][3] == -1]
+        if not outer_indices:
+            continue
+        # Pick the largest outer contour as the "main" cross-section.
+        main_idx = max(outer_indices, key=lambda i: cv2.contourArea(contours[i]))
+        main_c = contours[main_idx]
+        c_area = float(cv2.contourArea(main_c))
+        if c_area < area_min:
+            continue
+        poly_px, bbox = _polygon_from_contour(main_c)
+        outline = _segment_line_arc(main_c, poly_px)
+        smooth = _smooth_polyline_from_contour(
+            main_c, POLYLINE_FALLBACK_SAMPLE_STRIDE_PX,
+        )
+        # Collect this outer contour's holes.
+        cs_holes: list[CrossSectionHole] = []
+        for j in range(len(contours)):
+            if hier[j][3] != main_idx:
+                continue
+            hc = contours[j]
+            ha = float(cv2.contourArea(hc))
+            if ha < hole_min_area_abs or ha < c_area * SLICE_HOLE_MIN_AREA_VS_OUTER:
+                continue
+            hpoly, hbbox = _polygon_from_contour(hc)
+            houtline = _segment_line_arc(hc, hpoly)
+            perim = float(cv2.arcLength(hc, closed=True)) or 1.0
+            circ = min(4 * np.pi * ha / (perim ** 2), 1.0)
+            m = cv2.moments(hc)
+            if m["m00"] == 0:
+                continue
+            cx = float(m["m10"] / m["m00"])
+            cy = float(m["m01"] / m["m00"])
+            cs_holes.append(CrossSectionHole(
+                polygon_px=hpoly,
+                bbox_px=hbbox,
+                centre_xy=(cx, cy),
+                area_px=ha,
+                circularity=circ,
+                equivalent_diameter_px=float(2.0 * np.sqrt(ha / np.pi)),
+                outline=houtline,
+            ))
+        cs = CrossSection(
+            axis=axis,
+            position_norm=float(positions[midpoint]),
+            polygon_px=poly_px,
+            bbox_px=bbox,
+            area_px=c_area,
+            outline=outline,
+            smooth_polyline_px=smooth,
+            holes=cs_holes,
+        )
+        zones.append(AxisZone(
+            axis=axis,
+            start_norm=float(positions[s]) if s > 0 else 0.0,
+            end_norm=float(positions[e - 1]) if e <= len(positions) else 1.0,
+            cross_section=cs,
+        ))
+
+    # Post-merge: if two adjacent zones have nearly the same cross-section
+    # area (within SLICE_ZONE_DEDUP_AREA_FRAC), they're actually the same
+    # plateau. Combine them by extending the previous zone's end_norm.
+    deduped: list[AxisZone] = []
+    for z in zones:
+        if deduped:
+            prev = deduped[-1]
+            prev_a = max(prev.cross_section.area_px, 1.0)
+            if abs(z.cross_section.area_px - prev_a) / prev_a < SLICE_ZONE_DEDUP_AREA_FRAC:
+                # Extend the previous zone to cover this one, keep prev's cross-section
+                deduped[-1] = AxisZone(
+                    axis=prev.axis,
+                    start_norm=prev.start_norm,
+                    end_norm=z.end_norm,
+                    cross_section=prev.cross_section,
+                )
+                continue
+        deduped.append(z)
+
+    return AxisSlices(
+        axis=axis, n_slices=n_slices,
+        positions_norm=positions.tolist(),
+        areas_px=areas, transitions_idx=transitions, zones=deduped,
+    )
+
+
+def compute_axis_slices(
+    png_path: str | Path, n_slices: int = SLICE_DEFAULT_N,
+) -> dict[str, AxisSlices]:
+    """Public entry: load the PNG, build per-axis (low, high, valid)
+    volumes, slice along each axis, and return AxisSlices per axis.
+    Always returns Z, Y, X keys (axis missing -> empty AxisSlices).
+    """
+    png_path = Path(png_path)
+    img = np.asarray(Image.open(png_path).convert("RGB"))
+    cells = _split_cells(img)
+    panels: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for name, depth, sil in cells:
+        depth_luma = cv2.cvtColor(depth, cv2.COLOR_RGB2GRAY)
+        sil_luma = cv2.cvtColor(sil, cv2.COLOR_RGB2GRAY)
+        sil_mask = sil_luma < SILHOUETTE_BODY_MAX_LUMA
+        # Close pinholes in the silhouette before using it for slice masking
+        sil_u8 = (sil_mask.astype(np.uint8)) * 255
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        sil_u8 = cv2.morphologyEx(sil_u8, cv2.MORPH_CLOSE, kernel, iterations=1)
+        panels[name] = (depth_luma, sil_u8 > 0)
+
+    out: dict[str, AxisSlices] = {}
+    for axis in ("Z", "Y", "X"):
+        sl = _slice_axis(panels, axis, n_slices)
+        if sl is not None:
+            out[axis] = sl
+        else:
+            out[axis] = AxisSlices(
+                axis=axis, n_slices=n_slices, positions_norm=[],
+                areas_px=[], transitions_idx=[], zones=[],
+            )
+    return out
 
 
 def segment_ortho_png(png_path: str | Path) -> OrthoFeatures:

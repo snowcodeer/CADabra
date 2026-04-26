@@ -36,13 +36,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+import numpy as np
+
 from backend.ai_infra.ortho_view_segmenter import (
+    AxisSlices,
+    AxisZone,
+    CrossSection,
     InteriorHole,
     OrthoFeatures,
     OutlineSegment,
     StraightEdge,
     TierRegion,
     ViewFeatures,
+    compute_axis_slices,
+    detect_regular_polygon,
 )
 from backend.ai_infra.sketch_models import (
     ArcLineSegment,
@@ -475,7 +482,17 @@ def _profile_from_outline_polyline_bbox(
     mm_per_px: float,
 ) -> ClassifiedProfile:
     """Generic profile extractor for any closed region (outer outline OR
-    a depth-tier region)."""
+    a depth-tier region).
+
+    Tries CLEAN PRIMITIVES first (in priority order):
+      1. Regular polygon (octagon, hexagon, ...) → exact polyline of
+         perfect vertex coords. Survives STEP export as a parametric
+         constraint (vertices stay equidistant from centroid).
+      2. Circle → ``shape="circle"``.
+      3. Rectangle → ``shape="rectangle"``.
+      4. arc_line hybrid (D-cuts, obrounds, dumbbells).
+      5. polyline (smooth dense fallback).
+    """
     label, _ = _classify_outline_perimeter_fraction(outline)
     bx, by, bw, bh = bbox_px
     cx_px = bx + bw / 2.0
@@ -483,6 +500,63 @@ def _profile_from_outline_polyline_bbox(
 
     def _to_mm(p: tuple[float, float]) -> tuple[float, float]:
         return ((p[0] - cx_px) * mm_per_px, -(p[1] - cy_px) * mm_per_px)
+
+    # 1. Regular polygon detection — try BEFORE the outline classifier.
+    #    A regular octagon classifies as "polyline" in the outline pass
+    #    (no arcs), but we want to emit it as a perfect n-gon. The
+    #    cleaned PNG's gpt-image-2 cleanup tends to round polygon
+    #    corners, so approxPolyDP at the segmenter's default epsilon
+    #    leaves 11-15 verts on what should be an 8-gon. Retry at a
+    #    sequence of larger epsilons until the vertex count drops into
+    #    a regular-polygon range.
+    import cv2 as _cv2
+    if smooth_polyline_px and len(smooth_polyline_px) >= 12:
+        dense_np = np.array(
+            smooth_polyline_px, dtype=np.int32,
+        ).reshape(-1, 1, 2)
+        perim = float(_cv2.arcLength(dense_np, closed=True))
+        if perim > 0:
+            # Cap epsilon at 0.020 (larger collapses D-cuts into false-
+            # positive hexagons). Try all epsilons in range, collect
+            # every valid regular polygon, then pick the one with the
+            # FEWEST vertices — a 17-vert polygon and an 8-vert polygon
+            # of the same shape are both "regular" but the 8-vert one
+            # is the cleanest CAD representation.
+            candidates: list[tuple[int, int, float, float, tuple[float, float], float]] = []
+            for eps_frac in (0.005, 0.012, 0.020):
+                eps = max(2.0, perim * eps_frac)
+                approx = _cv2.approxPolyDP(
+                    dense_np, eps, closed=True,
+                ).reshape(-1, 2)
+                if not (5 <= len(approx) <= 12):
+                    continue
+                poly_list = [(int(p[0]), int(p[1])) for p in approx]
+                reg = detect_regular_polygon(poly_list)
+                if reg is not None:
+                    n, r_px, rot_rad, ctr = reg
+                    candidates.append((n, len(approx), r_px, rot_rad, ctr, eps_frac))
+            if candidates:
+                # Sort: prefer fewer regular-polygon sides (cleaner),
+                # then prefer the smallest epsilon at that N.
+                candidates.sort(key=lambda c: (c[0], c[5]))
+                n, _, r_px, rot_rad, ctr, chosen_eps = candidates[0]
+                verts_mm: list[tuple[float, float]] = []
+                for i in range(n):
+                    ang = rot_rad + 2.0 * np.pi * i / n
+                    vx_px = ctr[0] + r_px * np.cos(ang)
+                    vy_px = ctr[1] + r_px * np.sin(ang)
+                    verts_mm.append(_to_mm((vx_px, vy_px)))
+                xs = [v[0] for v in verts_mm]
+                ys = [v[1] for v in verts_mm]
+                return ClassifiedProfile(
+                    profile=Profile2D(
+                        shape="polyline",
+                        width_mm=max(xs) - min(xs),
+                        depth_mm=max(ys) - min(ys),
+                        vertices=verts_mm,
+                    ),
+                    label=f"regular-{n}gon(eps={chosen_eps:.3f})",
+                )
 
     if label == "circle":
         arcs = [s for s in outline if s.kind == "arc"]
@@ -837,6 +911,434 @@ def _match_holes(
 # ---------------------------------------------------------------------------
 # Step 4 — assemble the SketchPartDescription
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Slice-based stacked extrudes
+# ---------------------------------------------------------------------------
+# Map slicing axis -> base sketch plane + extrude axis attribute on
+# WorldFrame + face selector for the extruded direction's "top".
+_SLICE_AXIS_MAP = {
+    "Z": {"plane": "XY", "axis_attr": "z_mm", "face_top": ">Z"},
+    "Y": {"plane": "XZ", "axis_attr": "y_mm", "face_top": ">Y"},
+    "X": {"plane": "YZ", "axis_attr": "x_mm", "face_top": ">X"},
+}
+
+_SLICE_MIN_AREA_DIFF_FRAC = 0.15  # adjacent zone area diff to count as a real step
+_SLICE_MIN_RANK_SCORE = 0.30      # axis must have at least this score to be picked
+# When consecutive tiers' bbox centres are within this fraction of the
+# previous tier's bbox MIN dimension, treat them as exactly concentric.
+# Cross-section bbox centres jitter by a few pixels between slices due
+# to anti-aliasing of depth panel edges; without snapping, those tiny
+# offsets accumulate down the workplane chain and the stack visibly
+# drifts off-axis.
+_SLICE_CONCENTRIC_TOL_FRAC = 0.20
+# Position snap tolerances for the post-processing constraint pass.
+_POS_SNAP_AXIS_FRAC = 0.05      # |x| or |y| < 5% of part_max_mm → snap to 0
+_POS_SNAP_PAIR_TOL_FRAC = 0.05  # mirror pair tolerance (each component)
+# Equal-dimension snap for circles on the same plane: if two circles'
+# diameters agree within this fraction, snap both to their average.
+# Helps express "two equal-diameter holes" as a parametric equality.
+_DIAM_EQUAL_TOL_FRAC = 0.05
+
+
+def _rank_axis(slices: AxisSlices) -> float:
+    """Higher score = better candidate for the stepped-extrude axis.
+
+    A real stepped extrude has area progressing MONOTONICALLY along the
+    extrusion axis (each tier is smaller than the previous, or all the
+    same — never up then down). When you slice a Z-extruded post along
+    Y or X, you get an "up-then-down" pattern as you walk through the
+    cylindrical side surface — that's NOT the extrusion axis even
+    though it produces multiple zones. We disqualify any axis with a
+    sign change in the area-vs-position progression.
+    """
+    if not slices.zones or len(slices.zones) < 2:
+        return 0.0
+    areas = [z.cross_section.area_px for z in slices.zones]
+    max_area = max(areas)
+    if max_area <= 0:
+        return 0.0
+    diffs = [areas[i] - areas[i - 1] for i in range(1, len(areas))]
+    # Count sign changes treating very small diffs as 0 (within plateau noise).
+    sig_threshold = 0.05 * max_area
+    sign_changes = 0
+    prev_sign = 0
+    for d in diffs:
+        if d > sig_threshold:
+            sign = 1
+        elif d < -sig_threshold:
+            sign = -1
+        else:
+            sign = 0
+        if sign != 0 and prev_sign != 0 and sign != prev_sign:
+            sign_changes += 1
+        if sign != 0:
+            prev_sign = sign
+    if sign_changes > 0:
+        # Non-monotonic = WRONG axis (e.g. side view of an extrude).
+        return 0.0
+    significant_count = sum(
+        1 for d in diffs if abs(d) / max_area > _SLICE_MIN_AREA_DIFF_FRAC
+    )
+    return float(significant_count)
+
+
+def _pick_slicing_axis(slices_dict: dict[str, AxisSlices]) -> AxisSlices | None:
+    """Pick the axis with the strongest stacked-cross-section signal.
+    Returns None when no axis has a meaningful stacked structure (all
+    parts are uniform-cross-section or noisy)."""
+    best: tuple[float, AxisSlices] | None = None
+    for axis_name in ("Z", "Y", "X"):
+        s = slices_dict.get(axis_name)
+        if s is None:
+            continue
+        score = _rank_axis(s)
+        if best is None or score > best[0]:
+            best = (score, s)
+    if best is None or best[0] < _SLICE_MIN_RANK_SCORE:
+        return None
+    return best[1]
+
+
+def _polyline_to_regular_polygon(
+    vertices_mm: list[tuple[float, float]],
+) -> tuple[int, float, float, tuple[float, float]] | None:
+    """If a polyline (in mm) IS a regular n-gon, return (N, radius_mm,
+    rotation_rad, centre_mm). Used by the rotation-harmonisation pass
+    to read back the polygon parameters from a Profile2D's vertex list.
+    """
+    n = len(vertices_mm)
+    if n < 5 or n > 12:
+        return None
+    pts = np.array(vertices_mm, dtype=np.float64)
+    centre = pts.mean(axis=0)
+    rs = np.linalg.norm(pts - centre, axis=1)
+    if rs.mean() <= 0:
+        return None
+    # Loose check — we already know it's a regular polygon at this point.
+    if rs.std() / rs.mean() > 0.05:
+        return None
+    v0 = pts[0] - centre
+    rotation = float(np.arctan2(v0[1], v0[0]))
+    return n, float(rs.mean()), rotation, (float(centre[0]), float(centre[1]))
+
+
+def _harmonise_polygon_rotations(
+    operations: list[SketchOperation],
+) -> list[SketchOperation]:
+    """Walk extrude operations sharing a sketch plane; if multiple are
+    regular n-gons (same N), force them all to share the same rotation
+    (the parametric equivalent of a "parallel" constraint). Without
+    this, each tier's regular polygon picks its own arbitrary rotation
+    based on which contour vertex happened to be 'first' — producing
+    visually-misaligned stacked tiers like 117514's pre-harmonisation
+    output where every octagon was rotated a few degrees differently.
+    """
+    # Group by N only — NOT by (plane, N). A stacked extrude has its
+    # base on an absolute plane (XY/XZ/YZ) but every subsequent tier on
+    # a face selector (>Z, >Y, >X). Those still share the same axis of
+    # symmetry, so they should share rotation. Grouping by plane alone
+    # would keep tier 0 (XY) in a separate bucket from tiers 1+ (>Z),
+    # leaving tier 0 with its own arbitrary rotation while the others
+    # align to each other (visible: 117514's outer octagon rotated
+    # relative to the inner two).
+    by_n: dict[int, list[int]] = {}
+    polygon_info: dict[int, tuple[int, float, float, tuple[float, float]]] = {}
+    for i, op in enumerate(operations):
+        if op.operation != "extrude":
+            continue
+        if op.profile.shape != "polyline" or not op.profile.vertices:
+            continue
+        info = _polyline_to_regular_polygon(list(op.profile.vertices))
+        if info is None:
+            continue
+        n, r_mm, rot, ctr = info
+        polygon_info[i] = info
+        by_n.setdefault(n, []).append(i)
+
+    out = list(operations)
+    for n, idxs in by_n.items():
+        if len(idxs) < 2:
+            continue
+        # Canonical rotation: pick the rotation MODULO (2π/N) of the
+        # FIRST tier on this plane (the base extrude on XY/XZ/YZ — most
+        # accurate detection because it has the most pixels). Others
+        # snap to this, normalising the modulo offset.
+        canonical_rot = polygon_info[idxs[0]][2]
+        canonical_mod = canonical_rot % (2 * np.pi / n)
+        for j in idxs:
+            n_j, r_j, rot_j, ctr_j = polygon_info[j]
+            current_mod = rot_j % (2 * np.pi / n)
+            # Find the offset that aligns current_mod to canonical_mod.
+            delta = canonical_mod - current_mod
+            # Wrap delta into [-π/n, π/n] so we apply the smallest rotation.
+            half_period = np.pi / n
+            while delta > half_period:
+                delta -= 2 * half_period
+            while delta < -half_period:
+                delta += 2 * half_period
+            if abs(delta) < 1e-4:
+                continue  # already aligned
+            new_rot = rot_j + delta
+            verts_mm = []
+            for k in range(n):
+                ang = new_rot + 2.0 * np.pi * k / n
+                verts_mm.append((
+                    ctr_j[0] + r_j * np.cos(ang),
+                    ctr_j[1] + r_j * np.sin(ang),
+                ))
+            xs = [v[0] for v in verts_mm]
+            ys = [v[1] for v in verts_mm]
+            new_profile = out[j].profile.model_copy(update={
+                "vertices": verts_mm,
+                "width_mm": max(xs) - min(xs),
+                "depth_mm": max(ys) - min(ys),
+            })
+            out[j] = out[j].model_copy(update={"profile": new_profile})
+    return out
+
+
+def _try_fit_regular_polygon(
+    smooth_polyline_px: list[tuple[int, int]],
+    n_target: int,
+) -> tuple[float, float, float, tuple[float, float]] | None:
+    """Force-fit a regular N-gon to a contour at a SPECIFIC N (used by
+    the cross-tier consistency pass after a dominant N has been picked).
+
+    Returns ``(score, radius_px, rotation_rad, centre_xy)`` if the fit
+    is acceptable, where score is the radial RMS as a fraction of mean
+    radius (smaller = better). Differs from ``detect_regular_polygon``
+    in that we DON'T scan a range of N — we already know which N to
+    target — and the tolerances are correspondingly looser.
+    """
+    import cv2 as _cv2
+    if not smooth_polyline_px or len(smooth_polyline_px) < 8:
+        return None
+    dense_np = np.array(smooth_polyline_px, dtype=np.int32).reshape(-1, 1, 2)
+    perim = float(_cv2.arcLength(dense_np, closed=True))
+    # Try several epsilons, pick the one whose approxPolyDP gives N==n_target.
+    for eps_frac in (0.005, 0.012, 0.020, 0.030, 0.045):
+        eps = max(2.0, perim * eps_frac)
+        approx = _cv2.approxPolyDP(dense_np, eps, closed=True).reshape(-1, 2)
+        if len(approx) != n_target:
+            continue
+        pts = approx.astype(np.float64)
+        ctr = pts.mean(axis=0)
+        rs = np.linalg.norm(pts - ctr, axis=1)
+        mean_r = rs.mean()
+        if mean_r <= 0:
+            continue
+        score = float(rs.std() / mean_r)
+        if score > 0.20:    # too irregular even for forced fit
+            continue
+        v0 = pts[0] - ctr
+        rotation = float(np.arctan2(v0[1], v0[0]))
+        return (score, float(mean_r), rotation, (float(ctr[0]), float(ctr[1])))
+    return None
+
+
+def _harmonize_tier_classifications(
+    zones: list, frame: "WorldFrame",
+) -> dict[int, ClassifiedProfile]:
+    """Cross-tier consistency: if multiple tiers fit the same regular N,
+    promote the OTHER tiers to that same N if they almost qualify.
+
+    The motivation is 117514's 3-tier octagonal post: tier 2 is detected
+    as regular-8gon but tiers 0 and 1 come back as polyline / arc_line.
+    All three are octagons of different sizes; they should all be
+    rendered as 8-fold symmetric.
+
+    Returns ``{zone_index: ClassifiedProfile}`` only for zones that get
+    upgraded to a consistent regular N. Other zones stay with whatever
+    the per-tier classifier picked.
+    """
+    upgrades: dict[int, ClassifiedProfile] = {}
+    # Per-zone first-pass classification (label only).
+    labels = []
+    for z in zones:
+        cs = z.cross_section
+        cls = _profile_from_outline_polyline_bbox(
+            cs.outline, cs.smooth_polyline_px, cs.bbox_px, frame.mm_per_px,
+        )
+        labels.append(cls.label)
+
+    # Count regular-N hits.
+    counts: dict[int, int] = {}
+    for label in labels:
+        if label.startswith("regular-"):
+            try:
+                n = int(label.split("regular-")[1].split("gon")[0])
+            except (IndexError, ValueError):
+                continue
+            counts[n] = counts.get(n, 0) + 1
+
+    if not counts:
+        return upgrades
+
+    # Pick the dominant N (most occurrences; tie-break by smaller N).
+    dominant_n = sorted(counts.items(), key=lambda x: (-x[1], x[0]))[0][0]
+
+    # Re-classify each non-matching tier by force-fitting at dominant_n.
+    for i, (zone, label) in enumerate(zip(zones, labels)):
+        if label.startswith(f"regular-{dominant_n}gon"):
+            continue
+        cs = zone.cross_section
+        fit = _try_fit_regular_polygon(cs.smooth_polyline_px, dominant_n)
+        if fit is None:
+            continue
+        score, r_px, rot_rad, ctr = fit
+        # Build the perfect N-gon profile in mm.
+        bx, by, bw, bh = cs.bbox_px
+        cx_px = bx + bw / 2.0
+        cy_px = by + bh / 2.0
+
+        def _to_mm(p):
+            return ((p[0] - cx_px) * frame.mm_per_px,
+                    -(p[1] - cy_px) * frame.mm_per_px)
+
+        verts_mm = []
+        for k in range(dominant_n):
+            ang = rot_rad + 2.0 * np.pi * k / dominant_n
+            vx_px = ctr[0] + r_px * np.cos(ang)
+            vy_px = ctr[1] + r_px * np.sin(ang)
+            verts_mm.append(_to_mm((vx_px, vy_px)))
+        xs = [v[0] for v in verts_mm]
+        ys = [v[1] for v in verts_mm]
+        upgrades[i] = ClassifiedProfile(
+            profile=Profile2D(
+                shape="polyline",
+                width_mm=max(xs) - min(xs),
+                depth_mm=max(ys) - min(ys),
+                vertices=verts_mm,
+            ),
+            label=f"regular-{dominant_n}gon(harmonised)",
+        )
+    return upgrades
+
+
+def _build_sliced_extrudes(
+    slices: AxisSlices, frame: WorldFrame,
+) -> tuple[list[SketchOperation], str]:
+    """Convert per-zone cross-sections into ordered extrude operations.
+
+    Each zone = one extrude on the appropriate plane (XY/XZ/YZ for the
+    first, then >Z/>Y/>X for subsequent stacked extrudes). Cross-section
+    interior holes become cut operations on the same face.
+    """
+    if not slices.zones:
+        return [], "no zones"
+    spec = _SLICE_AXIS_MAP.get(slices.axis)
+    if spec is None:
+        return [], f"unknown axis {slices.axis}"
+    base_plane = spec["plane"]
+    face_top = spec["face_top"]
+    axis_total_mm = max(getattr(frame, spec["axis_attr"]), 0.001)
+
+    operations: list[SketchOperation] = []
+    notes_parts: list[str] = []
+    order = 1
+
+    # Track the PREVIOUS tier's cross-section centre so each new tier's
+    # offset is computed relative to the workplane that CadQuery is
+    # actually placing it on (the previous tier's top face, centred on
+    # its bbox via CenterOfBoundBox). Computing offsets relative to the
+    # first tier instead caused cumulative drift down the stack.
+    prev_cx_px: float | None = None
+    prev_cy_px: float | None = None
+
+    # Cross-tier consistency: if any tier is detected as a regular N-gon,
+    # try to harmonise the OTHER tiers to the same N. A 3-tier octagonal
+    # post should be three octagons of different sizes, not "polyline +
+    # arc_line + octagon".
+    upgrades = _harmonize_tier_classifications(slices.zones, frame)
+
+    for i, zone in enumerate(slices.zones):
+        cs = zone.cross_section
+        height_norm = max(zone.end_norm - zone.start_norm, 0.001)
+        height_mm = max(height_norm * axis_total_mm, 0.5)
+
+        if i in upgrades:
+            cls = upgrades[i]
+        else:
+            cls = _profile_from_outline_polyline_bbox(
+                cs.outline, cs.smooth_polyline_px, cs.bbox_px, frame.mm_per_px,
+            )
+
+        cbx, cby, cbw, cbh = cs.bbox_px
+        cx_px = cbx + cbw / 2.0
+        cy_px = cby + cbh / 2.0
+        if i == 0:
+            pos_x_mm = 0.0
+            pos_y_mm = 0.0
+            plane = base_plane
+        else:
+            dx_px = cx_px - prev_cx_px
+            dy_px = cy_px - prev_cy_px
+            # Concentric snap: if the centre-to-centre offset is within
+            # _SLICE_CONCENTRIC_TOL_FRAC of the previous tier's smaller
+            # bbox dimension, treat as exactly concentric. Stops sub-
+            # pixel anti-aliasing wobble from drifting the stack.
+            prev_min_dim = min(cbw, cbh)
+            tol_px = prev_min_dim * _SLICE_CONCENTRIC_TOL_FRAC
+            if abs(dx_px) < tol_px:
+                dx_px = 0.0
+            if abs(dy_px) < tol_px:
+                dy_px = 0.0
+            pos_x_mm = dx_px * frame.mm_per_px
+            pos_y_mm = -dy_px * frame.mm_per_px
+            plane = face_top
+
+        operations.append(SketchOperation(
+            order=order,
+            plane=plane,
+            profile=cls.profile,
+            operation="extrude",
+            distance_mm=height_mm,
+            direction="positive",
+            position_x=pos_x_mm,
+            position_y=pos_y_mm,
+        ))
+        order += 1
+        notes_parts.append(f"z{i}({cls.label},h={height_mm:.1f})")
+        prev_cx_px = cx_px
+        prev_cy_px = cy_px
+
+        # Interior holes in this cross-section become cuts through the
+        # zone (cylindrical bores, slots inside the outer outline).
+        for hole in cs.holes:
+            # Classify the hole's outline (circular hole = clean circle profile).
+            hcls = _profile_from_outline_polyline_bbox(
+                hole.outline, hole.polygon_px, hole.bbox_px, frame.mm_per_px,
+            )
+            # Position relative to THIS zone's cross-section centre.
+            hpx = hole.centre_xy[0]
+            hpy = hole.centre_xy[1]
+            hpos_x_mm = (hpx - cx_px) * frame.mm_per_px
+            hpos_y_mm = -(hpy - cy_px) * frame.mm_per_px
+            # If the hole came back as polyline but is roughly circular,
+            # prefer a circle profile sized by equivalent diameter.
+            if hcls.label == "polyline" and hole.circularity > 0.7:
+                d_mm = hole.equivalent_diameter_px * frame.mm_per_px
+                profile = Profile2D(
+                    shape="circle", width_mm=d_mm, depth_mm=d_mm, diameter_mm=d_mm,
+                )
+            else:
+                profile = hcls.profile
+            operations.append(SketchOperation(
+                order=order,
+                plane=face_top,
+                profile=profile,
+                operation="cut",
+                distance_mm=height_mm + 1.0,
+                direction="negative",
+                position_x=hpos_x_mm,
+                position_y=hpos_y_mm,
+            ))
+            order += 1
+            notes_parts.append(f"z{i}.hole({hcls.label})")
+
+    return operations, f"sliced[{slices.axis}]: " + " + ".join(notes_parts)
+
+
 _BASE_VIEW_SPECS: dict[str, dict] = {
     # view_name → {plane, axis_attr, opp_view, axis_label, hole_face}
     "Top":    {"plane": "XY", "axis_attr": "z_mm", "opp": "Bottom", "axis_label": "Z", "hole_face": ">Z"},
@@ -887,14 +1389,173 @@ def _pick_base_view(views: dict[str, ViewFeatures]) -> tuple[ViewFeatures, str]:
     return view, name
 
 
+def _apply_geometric_constraints(
+    operations: list[SketchOperation], frame: WorldFrame,
+) -> list[SketchOperation]:
+    """Post-process operation positions to enforce design intent constraints.
+
+    Two constraints are inferred from the numbers:
+      * AXIS-CENTRED: a position component very close to 0 (i.e. on the
+        sketch plane's axis through the origin) snaps to exactly 0. This
+        is the parametric equivalent of a "coincident with axis" or
+        "centre on origin" constraint.
+      * MIRROR-SYMMETRIC PAIR: two operations on the same plane whose
+        centre vectors mirror each other (similar shapes, opposite sign
+        on one component) snap to exact mirror coordinates. This is the
+        parametric equivalent of a "symmetric across axis" constraint.
+
+    Tolerances scale with the part's largest dimension so that small
+    parts and big parts both get sensible snapping.
+    """
+    if not operations:
+        return operations
+    part_max_mm = max(frame.x_mm, frame.y_mm, frame.z_mm, 1.0)
+    axis_tol = part_max_mm * _POS_SNAP_AXIS_FRAC
+    pair_tol = part_max_mm * _POS_SNAP_PAIR_TOL_FRAC
+
+    def _snapped(v: float) -> float:
+        return 0.0 if abs(v) < axis_tol else v
+
+    # Pass 1: axis-centred snap.
+    snapped = []
+    for op in operations:
+        new_x = _snapped(op.position_x)
+        new_y = _snapped(op.position_y)
+        if new_x != op.position_x or new_y != op.position_y:
+            snapped.append(op.model_copy(update={
+                "position_x": new_x,
+                "position_y": new_y,
+            }))
+        else:
+            snapped.append(op)
+
+    # Pass 1.5: equal-diameter snap for circles on the same plane.
+    # Two cuts/extrudes of nearly-identical-diameter circles on the
+    # same workplane usually express "matching holes" as a parametric
+    # equality (two through-bores of the same drill bit).
+    by_plane_circles: dict[str, list[int]] = {}
+    for i, op in enumerate(snapped):
+        if op.profile.shape == "circle" and op.profile.diameter_mm is not None:
+            by_plane_circles.setdefault(op.plane, []).append(i)
+    for plane_name, idxs in by_plane_circles.items():
+        if len(idxs) < 2:
+            continue
+        diams = [snapped[i].profile.diameter_mm for i in idxs]
+        max_d = max(diams)
+        if max_d <= 0:
+            continue
+        # Cluster diameters: within tolerance, snap to cluster mean.
+        clusters: list[list[int]] = []
+        for j, i in enumerate(idxs):
+            d = snapped[i].profile.diameter_mm
+            placed = False
+            for c in clusters:
+                c_mean = sum(snapped[k].profile.diameter_mm for k in c) / len(c)
+                if abs(d - c_mean) / max_d < _DIAM_EQUAL_TOL_FRAC:
+                    c.append(i)
+                    placed = True
+                    break
+            if not placed:
+                clusters.append([i])
+        for c in clusters:
+            if len(c) < 2:
+                continue
+            mean_d = sum(snapped[i].profile.diameter_mm for i in c) / len(c)
+            for i in c:
+                op = snapped[i]
+                new_profile = op.profile.model_copy(update={
+                    "diameter_mm": mean_d,
+                    "width_mm": mean_d,
+                    "depth_mm": mean_d,
+                })
+                snapped[i] = op.model_copy(update={"profile": new_profile})
+
+    # Pass 2: mirror-symmetric pair snap. Walk operations on the same
+    # plane in order; for each pair (i, j) where positions look like
+    # near-mirrors (matching profile shape, opposite-sign component),
+    # snap to exact ±|component|.
+    def _profile_signature(p: Profile2D) -> tuple:
+        return (p.shape, round(p.width_mm, 1), round(p.depth_mm, 1),
+                round(p.diameter_mm or 0, 1))
+
+    by_plane: dict[str, list[int]] = {}
+    for i, op in enumerate(snapped):
+        by_plane.setdefault(op.plane, []).append(i)
+
+    for plane, idxs in by_plane.items():
+        if len(idxs) < 2:
+            continue
+        for i_a in idxs:
+            a = snapped[i_a]
+            sig_a = _profile_signature(a.profile)
+            for i_b in idxs:
+                if i_b <= i_a:
+                    continue
+                b = snapped[i_b]
+                if _profile_signature(b.profile) != sig_a:
+                    continue
+                # Mirror across X axis: a.y ≈ -b.y, a.x ≈ b.x.
+                # Mirror across Y axis: a.x ≈ -b.x, a.y ≈ b.y.
+                for axis in ("x", "y"):
+                    if axis == "x":
+                        same_a, same_b = a.position_y, b.position_y
+                        opp_a, opp_b = a.position_x, b.position_x
+                    else:
+                        same_a, same_b = a.position_x, b.position_x
+                        opp_a, opp_b = a.position_y, b.position_y
+                    if abs(same_a - same_b) > pair_tol:
+                        continue
+                    if abs(opp_a + opp_b) > pair_tol:
+                        continue
+                    avg_same = (same_a + same_b) / 2.0
+                    avg_mag = (abs(opp_a) + abs(opp_b)) / 2.0
+                    sign_a = 1.0 if opp_a >= 0 else -1.0
+                    sign_b = -sign_a
+                    if axis == "x":
+                        snapped[i_a] = a.model_copy(update={
+                            "position_x": sign_a * avg_mag,
+                            "position_y": _snapped(avg_same),
+                        })
+                        snapped[i_b] = b.model_copy(update={
+                            "position_x": sign_b * avg_mag,
+                            "position_y": _snapped(avg_same),
+                        })
+                    else:
+                        snapped[i_a] = a.model_copy(update={
+                            "position_x": _snapped(avg_same),
+                            "position_y": sign_a * avg_mag,
+                        })
+                        snapped[i_b] = b.model_copy(update={
+                            "position_x": _snapped(avg_same),
+                            "position_y": sign_b * avg_mag,
+                        })
+                    break  # one mirror axis at most per pair
+    return snapped
+
+
 def infer_sketches(features: OrthoFeatures) -> SketchPartDescription:
     views = features.views
     frame = _world_frame(views)
 
-    # Pick the base view by silhouette complexity rather than always
-    # using Top. This lets parts like 128105 (uniform rectangle from Top
-    # but dumbbell silhouette from Front) get constructed from the
-    # right axis projection.
+    # PASS 0: try slice-based stacked extrudes. Slicing computes per-axis
+    # cross-sections from opposite-view depth panels and finds the real
+    # area-vs-position transitions — much cleaner than depth-tier-peak
+    # detection for stepped parts. Only fires when at least one axis has
+    # a strong stacked-cross-section signal.
+    sliced_ops: list[SketchOperation] = []
+    sliced_note = ""
+    sliced_axis = ""
+    try:
+        axis_slices = compute_axis_slices(features.source_png)
+        chosen = _pick_slicing_axis(axis_slices)
+        if chosen is not None:
+            sliced_ops, sliced_note = _build_sliced_extrudes(chosen, frame)
+            sliced_axis = chosen.axis
+    except Exception as exc:
+        sliced_note = f"slicing skipped: {exc}"
+
+    # Pick the base view by silhouette complexity (only used when slicing
+    # didn't produce a usable construction).
     top, base_view_name = _pick_base_view(views)
     spec = _BASE_VIEW_SPECS[base_view_name]
     base_plane = spec["plane"]
@@ -905,15 +1566,24 @@ def infer_sketches(features: OrthoFeatures) -> SketchPartDescription:
     operations: list[SketchOperation] = []
     construction_note: str
 
-    # Stacked-extrude path: when the base view has 2+ depth tiers AND
-    # the tiers form a valid containment chain, emit one extrude per
-    # tier. Captures T-shapes, flange+boss, stepped bars. If the
-    # builder rejects the stack (over-segmented or non-contained tiers),
-    # we fall through to the single-extrude path so CadQuery doesn't
-    # try to extrude on a face that doesn't exist.
+    # If slicing succeeded, use that construction (it's the cleanest
+    # signal). Otherwise fall back to depth-tier stacked extrudes, then
+    # to the single-base-extrude path.
     tier_ops: list[SketchOperation] = []
     construction_note = ""
-    if len(top.tier_regions) >= 2:
+    if sliced_ops:
+        tier_ops = sliced_ops
+        construction_note = sliced_note
+        # Map the chosen axis back to the base plane so subsequent code
+        # that references base_plane / base_extrude_axis_mm uses the
+        # axis the slicing picked instead of the view-based default.
+        if sliced_axis in _SLICE_AXIS_MAP:
+            sl_spec = _SLICE_AXIS_MAP[sliced_axis]
+            base_plane = sl_spec["plane"]
+            base_extrude_axis_mm = max(
+                getattr(frame, sl_spec["axis_attr"]), 0.001,
+            )
+    elif len(top.tier_regions) >= 2:
         tier_ops, construction_note = _build_stacked_extrudes(top, frame)
     if tier_ops:
         operations.extend(tier_ops)
@@ -1003,6 +1673,14 @@ def infer_sketches(features: OrthoFeatures) -> SketchPartDescription:
     side_ops, side_notes = _detect_side_face_bosses(views, frame, order)
     operations.extend(side_ops)
     order += len(side_ops)
+
+    # Geometric constraint pass: snap near-axis positions to 0 (centre),
+    # snap mirror pairs to exact ±same position, and align the rotation
+    # of stacked regular polygons (parallel constraint). Together these
+    # are the "concentric / symmetric / parallel" constraints a CAD
+    # designer would set explicitly; we infer them from the numerics.
+    operations = _harmonise_polygon_rotations(operations)
+    operations = _apply_geometric_constraints(operations, frame)
 
     notes = (
         f"deterministic CV inference. Base: {base.notes}. "
