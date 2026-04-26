@@ -182,6 +182,35 @@ class CylindricalFace(BaseModel):
     )
 
 
+class MissedFeature(BaseModel):
+    """A feature that ``opencv_validator`` spotted in the 6-view render
+    and that ``face_extractor`` did NOT recover from the mesh. Always
+    treated as supplementary — face-extractor data takes precedence.
+    """
+
+    feature_type: Literal["hole", "pocket", "step", "small_feature"]
+    detection_source: Literal[
+        "depth_map_top",
+        "depth_map_bottom",
+        "side_depth_bands",
+        "rgb_contour",
+    ]
+    approximate_centre_mm: Tuple[float, float, float] = Field(
+        ...,
+        description="World-mm position of the feature's centre, in the "
+        "same frame as PlanarFace/CylindricalFace centres.",
+    )
+    approximate_size_mm: Tuple[float, float] = Field(
+        ...,
+        description="(width, height) in mm. For a circular feature both "
+        "values are the diameter.",
+    )
+    approximate_shape: Literal["circle", "rectangle", "unknown"]
+    depth_type: Literal["through", "blind", "unknown"] = "unknown"
+    confidence: Literal["high", "medium", "low"]
+    notes: str | None = None
+
+
 class ExtractedGeometry(BaseModel):
     planar_faces: list[PlanarFace]
     cylindrical_faces: list[CylindricalFace]
@@ -196,14 +225,24 @@ class ExtractedGeometry(BaseModel):
     )
     face_count: int
     source_file: str
+    missed_features: list[MissedFeature] = Field(
+        default_factory=list,
+        description="Populated by ``opencv_validator.validate_with_opencv`` "
+        "when the 6-view render is available. Empty by default. Lists "
+        "features the face extractor missed (small holes, blind pockets, "
+        "depth steps, small bosses). Authoritative data still lives on "
+        "``planar_faces`` and ``cylindrical_faces``.",
+    )
 
 
 # ---------------------------------------------------------------------------
 # Mesh loading + normalisation
 # ---------------------------------------------------------------------------
 def _load_normalised_mesh(mesh_path: Path) -> Tuple[o3d.geometry.TriangleMesh, float]:
-    """Load an STL, weld its duplicate vertices, centre it, scale
-    longest edge to ``NORMALISE_LONGEST_MM``.
+    """Load an STL, weld duplicate vertices, drop degenerate / non-manifold
+    junk from typical STLs, then scale the longest edge to
+    ``NORMALISE_LONGEST_MM`` (mesh stays in its original position; there is
+    no recentering step).
 
     The vertex-merge step is critical. STL files store *triangle
     soup*: every triangle owns its own three vertices and there are
@@ -229,6 +268,8 @@ def _load_normalised_mesh(mesh_path: Path) -> Tuple[o3d.geometry.TriangleMesh, f
     weld_tol = max(float(np.min(extents[extents > 0]) * 1e-4), 1e-6)
     mesh = mesh.merge_close_vertices(weld_tol)
     mesh.remove_duplicated_triangles()
+    mesh.remove_degenerate_triangles()
+    mesh.remove_non_manifold_edges()
     mesh.remove_unreferenced_vertices()
     mesh.compute_triangle_normals()
     mesh.compute_vertex_normals()

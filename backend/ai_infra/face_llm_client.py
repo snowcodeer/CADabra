@@ -30,6 +30,7 @@ from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from backend.ai_infra.face_extractor import ExtractedGeometry, summarise_geometry
+from backend.ai_infra.opencv_validator import validate_with_opencv
 from backend.ai_infra.sketch_models import SketchPartDescription
 
 
@@ -149,6 +150,41 @@ Rule 5: SIDE FACES (±X, ±Y) that match (base_extrude_height ×
 Rule 6: NEVER MERGE separate features. Two holes with the same
         radius at different XY positions = two separate
         SketchOperation entries.
+
+MISSED FEATURES (OpenCV validation findings)
+============================================
+After geometric face extraction, the input render is scanned with
+OpenCV to catch features the extraction may have missed. Any findings
+appear under ``missed_features`` in the ExtractedGeometry JSON. They
+are SUPPLEMENTARY — face_extractor's planar_faces and
+cylindrical_faces are always the source of truth.
+
+Treat each missed feature like this:
+
+  * feature_type == "hole" or "pocket"
+      Add a new SketchOperation with operation == "cut".
+        - approximate_shape "circle" → profile shape "circle",
+          diameter_mm = approximate_size_mm[0].
+        - approximate_shape "rectangle" → profile shape "rectangle",
+          width_mm = approximate_size_mm[0],
+          depth_mm = approximate_size_mm[1].
+        - depth_type == "through" → distance_mm = full part thickness
+          along the cut axis (use bounding_box_mm).
+        - depth_type == "blind" / "unknown" → distance_mm ≈ a few mm
+          (3-5 mm) unless you have evidence otherwise.
+      Place it on the same working face as the rest of the cuts.
+
+  * feature_type == "step"
+      Only act if your construction sequence does NOT already produce
+      a face at that height. Otherwise ignore.
+
+  * feature_type == "small_feature"
+      Include only if it is also clearly visible in the face diagram.
+      Otherwise ignore — it's likely a rendering artefact.
+
+When you include ANY missed feature, set the description's
+``confidence`` to "medium" (not "high"). When in doubt, prefer
+extractor data and ignore the OpenCV finding.
 
 POSITION CONVENTION
 ===================
@@ -355,9 +391,27 @@ def _encode_image(path: str | Path) -> dict:
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+def _format_missed_features_summary(geometry: ExtractedGeometry) -> str:
+    """Plain-text bullet list appended to the user message so Claude
+    sees the OpenCV findings even without re-parsing the JSON."""
+    if not geometry.missed_features:
+        return "OpenCV validation found no additional features."
+    lines = [f"OpenCV found {len(geometry.missed_features)} missed feature(s):"]
+    for f in geometry.missed_features:
+        cx, cy, cz = f.approximate_centre_mm
+        sw, sh = f.approximate_size_mm
+        lines.append(
+            f"  - {f.feature_type} ({f.approximate_shape}) at "
+            f"({cx:.1f}, {cy:.1f}, {cz:.1f}) mm, size {sw:.1f}×{sh:.1f} mm, "
+            f"depth={f.depth_type}, conf={f.confidence}"
+        )
+    return "\n".join(lines)
+
+
 def call_claude_faces(
     diagram_path: str | Path,
     geometry: ExtractedGeometry,
+    render_path: str | Path | None = None,
 ) -> SketchPartDescription:
     """Run the face-geometry vision pipeline.
 
@@ -366,6 +420,10 @@ def call_claude_faces(
         user message so Claude never has to re-extract numbers.
     ``geometry``: the same ExtractedGeometry that was used to render
         the diagram (we accept it directly to avoid double-loading).
+    ``render_path``: optional path to the ORIGINAL 6-view render PNG of
+        the input STL. When provided, ``opencv_validator`` scans it and
+        appends ``MissedFeature`` entries to ``geometry.missed_features``
+        BEFORE building the prompt. ``geometry`` is mutated in place.
 
     Returns a validated ``SketchPartDescription`` ready to feed
     straight into ``sketch_builder.build_from_sketches``.
@@ -376,6 +434,9 @@ def call_claude_faces(
             "export it in your shell before running the pipeline."
         )
 
+    if render_path is not None:
+        validate_with_opencv(render_path, geometry)
+
     client = anthropic.Anthropic()
 
     user_text = USER_PROMPT_TEMPLATE.format(
@@ -383,6 +444,10 @@ def call_claude_faces(
         summary=summarise_geometry(geometry),
         JSON_BEGIN=JSON_BEGIN,
         JSON_END=JSON_END,
+    )
+    user_text = (
+        f"{user_text}\n\n"
+        f"OpenCV validation findings:\n{_format_missed_features_summary(geometry)}"
     )
 
     response = client.messages.create(
