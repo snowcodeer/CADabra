@@ -13,6 +13,13 @@ export default {
       },
     },
     extend: {
+      screens: {
+        "3xl": "1920px",
+      },
+      maxWidth: {
+        "8xl": "96rem",
+        "9xl": "112rem",
+      },
       fontFamily: {
         sans: [
           "Inter",

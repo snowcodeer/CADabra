@@ -27,20 +27,20 @@ const Index = () => {
   const handleAnalysis = useCallback((a: CompareAnalysis) => setAnalysis(a), []);
 
   return (
-    <main className="relative h-screen w-screen overflow-hidden stage-bg">
+    <main className="relative h-screen-dvh w-full min-w-0 overflow-hidden stage-bg site-pad-bottom">
       {/* H1 for SEO — visually hidden */}
       <h1 className="sr-only">
         CADabra · Point Cloud to Parametric CAD reconstruction
       </h1>
 
       {/* Top bar */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-8 py-6">
+      <header className="site-gutter-x pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between py-4 sm:py-5 md:py-6">
         {/* Wordmark — slides in from the left */}
         <div
           className="pointer-events-auto opacity-0 animate-[demo-slide-in-left_700ms_var(--ease-out-soft)_120ms_forwards]"
         >
           <span
-            className="font-wordmark text-[38px] font-bold tracking-[-0.02em]
+            className="font-wordmark text-[length:clamp(1.75rem,calc(1.1rem+1.2vw),2.4rem)] font-bold leading-none tracking-[-0.02em]
                        bg-gradient-to-br from-foreground via-foreground to-foreground/60
                        bg-clip-text text-transparent
                        [text-shadow:0_1px_0_rgba(0,0,0,0.04)]"
@@ -48,7 +48,7 @@ const Index = () => {
             CAD
           </span>
           <span
-            className="font-wordmark text-[38px] font-light italic tracking-[-0.02em] text-foreground/80"
+            className="font-wordmark text-[length:clamp(1.75rem,calc(1.1rem+1.2vw),2.4rem)] font-light italic leading-none tracking-[-0.02em] text-foreground/80"
           >
             abra
           </span>
@@ -161,8 +161,8 @@ const Index = () => {
       {/* Compare button — bottom right when not in compare mode, top when in
           compare mode (the bottom area is used by the analysis panel). */}
       <div
-        className={`pointer-events-none absolute right-8 z-30 transition-all duration-300 ${
-          compareMode ? "top-24" : "bottom-10"
+        className={`pointer-events-none absolute right-[max(0.75rem,env(safe-area-inset-right))] z-30 transition-all duration-300 sm:right-6 md:right-8 ${
+          compareMode ? "top-20 sm:top-24" : "bottom-[max(1.25rem,env(safe-area-inset-bottom))] sm:bottom-10"
         }`}
       >
         <button

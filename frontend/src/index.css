@@ -6,6 +6,8 @@
 
 @layer base {
   :root {
+    /* Scales with viewport; pairs with max + safe-area for notched phones */
+    --site-gutter: max(0.75rem, min(2.5rem, 0.4rem + 2vw));
     /* Surfaces */
     --background: 0 0% 99%;
     --foreground: 220 14% 12%;
@@ -84,19 +86,50 @@
     @apply border-border;
   }
 
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   html,
   body,
   #root {
     height: 100%;
+    min-height: 0;
   }
 
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "ss01", "cv11";
+    /* Avoid horizontal scroll when users zoom in or use narrow / zoomed windows */
+    overflow-x: clip;
   }
 }
 
 @layer components {
+  /* Horizontal padding: fluid gutter + notches / home indicator (iOS) */
+  .site-gutter-x {
+    padding-left: max(var(--site-gutter), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--site-gutter), env(safe-area-inset-right, 0px));
+  }
+
+  .site-pad-bottom {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Mobile URL bar: svh; modern browsers: dvh */
+  .min-h-screen-dvh {
+    min-height: 100vh;
+    min-height: 100svh;
+    min-height: 100dvh;
+  }
+
+  .h-screen-dvh {
+    height: 100vh;
+    height: 100svh;
+    height: 100dvh;
+  }
+
   .stage-bg {
     /* Flat, uniform surface — no gradient. Floor, walls and roof all read
        as one continuous glossy white environment. */
