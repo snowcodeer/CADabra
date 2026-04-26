@@ -12,8 +12,10 @@ Controls (PyVista trackball default):
 
 Usage:
     python scripts/view3d.py path/to/file.stl
+    python scripts/view3d.py path/to/file.stl --smooth
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -41,7 +43,7 @@ def _setup_lights(plotter: pv.Plotter) -> None:
     plotter.add_light(ambient)
 
 
-def view_stl(stl_path: Path) -> None:
+def view_stl(stl_path: Path, *, smooth_shading: bool = False) -> None:
     mesh = pv.read(str(stl_path))
 
     plotter = pv.Plotter(window_size=(1100, 800))
@@ -51,7 +53,7 @@ def view_stl(stl_path: Path) -> None:
     plotter.add_mesh(
         mesh,
         color=MESH_COLOR,
-        smooth_shading=True,
+        smooth_shading=smooth_shading,
         ambient=0.15,
         diffuse=0.85,
         specular=0.0,
@@ -72,16 +74,21 @@ def view_stl(stl_path: Path) -> None:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print("Usage: python scripts/view3d.py path/to/file.stl", file=sys.stderr)
-        return 2
+    p = argparse.ArgumentParser(description="Interactive PyVista STL viewer.")
+    p.add_argument("stl", type=Path, help="Path to an .stl file.")
+    p.add_argument(
+        "--smooth",
+        action="store_true",
+        help="Interpolated vertex normals (can show banding on faceted CAD).",
+    )
+    ns = p.parse_args(argv[1:])
 
-    stl_path = Path(argv[1]).resolve()
+    stl_path = ns.stl.resolve()
     if not stl_path.exists():
         print(f"STL not found: {stl_path}", file=sys.stderr)
         return 2
 
-    view_stl(stl_path)
+    view_stl(stl_path, smooth_shading=ns.smooth)
     return 0
 
 
