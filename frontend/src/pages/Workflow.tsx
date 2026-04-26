@@ -3,15 +3,26 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
+  CheckCircle2,
+  Loader2,
   Play,
   Upload,
   X,
 } from "lucide-react";
+import {
+  PipelineError,
+  processSample,
+  resolveOutputUrl,
+  type PipelineResult,
+} from "@/lib/api";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { Edges, Environment } from "@react-three/drei";
+import { Scene } from "@/components/cad/Scene";
 import { Podium } from "@/components/cad/Podium";
 import { CanvasReflowText } from "@/components/workflow/CanvasReflowText";
+import { NoisyCloudPreview } from "@/components/workflow/NoisyCloudPreview";
 import { CadabraCadLockup } from "@/components/CadabraWordmark";
 import { ScanToCadTitle } from "@/components/workflow/ScanToCadTitle";
 import { LegoPodiumScene } from "@/components/workflow/LegoPodiumScene";
@@ -52,40 +63,203 @@ const STAGE_LABELS: Record<Stage, string> = {
  * as the raw scan input. The shape is a deformed sphere so it reads
  * as a real scanned artefact rather than a perfect ball.
  */
-function useScanPoints(count: number) {
-  // Base unit-sphere positions (Fibonacci distribution) plus the
-  // spherical coords we need to drive a sound-wave ripple per point.
+/* ---------------- STL loader ----------------
+ * Loads an STL URL once, normalises it (Z-up → Y-up, centre, scale to
+ * a fixed frame), and returns the geometry. While loading or when
+ * `url` is null, returns null so the caller can fall back to a
+ * procedural shape — this keeps the staged animation frame-stable
+ * across the click → load handoff. Designed for the "card cloud →
+ * stage 1 cloud" continuity flow on /workflow.
+ */
+function useNormalizedStl(url: string | null): THREE.BufferGeometry | null {
+  const [geom, setGeom] = useState<THREE.BufferGeometry | null>(null);
+  useEffect(() => {
+    if (!url) {
+      setGeom(null);
+      return;
+    }
+    let cancelled = false;
+    const loader = new STLLoader();
+    loader.load(
+      url,
+      (g) => {
+        if (cancelled) return;
+        // STL is typically Z-up (CAD). Three.js is Y-up. Rotate so the
+        // part lands the right way up on the podium / inside the
+        // unfolded cube.
+        g.rotateX(-Math.PI / 2);
+        // Centre at origin and scale so the longest dim equals the
+        // sphere's diameter (2.7), so all downstream code that was
+        // tuned to the sphere fallback continues to work.
+        g.computeBoundingBox();
+        const bb = g.boundingBox!;
+        const size = new THREE.Vector3();
+        bb.getSize(size);
+        const center = new THREE.Vector3();
+        bb.getCenter(center);
+        const longest = Math.max(size.x, size.y, size.z) || 1;
+        const scale = 2.7 / longest;
+        g.translate(-center.x, -center.y, -center.z);
+        g.scale(scale, scale, scale);
+        g.computeVertexNormals();
+        setGeom(g);
+      },
+      undefined,
+      (err) => {
+        if (!cancelled) {
+          // Fall back to sphere; PipelineScene already handles null.
+          console.warn(`Failed to load ${url}:`, err);
+          setGeom(null);
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+  return geom;
+}
+
+/* ---------------- Orthographic-grid face textures ----------------
+ * The pipeline emits a 2400×1000 px PNG with 6 cells in a 3×2 grid:
+ *
+ *     Row 1:  +Z top    +X right    +Y front
+ *     Row 2:  -Z bottom  -X left    -Y back
+ *
+ * Each cell is split horizontally: LEFT half = RGB render, RIGHT half =
+ * depth (RdYlBu_r colormap). For the cube scene we want only the depth
+ * panels — they read as crisp engineering blueprints.
+ *
+ * Returns a Record<FaceId, THREE.Texture> when the image has loaded;
+ * null while it's still in flight. Per face we crop the depth half of
+ * its cell using offset/repeat on a Texture instance that shares the
+ * underlying image data.
+ */
+function useOrthoFaceTextures(
+  url: string | null,
+): Record<"front" | "back" | "left" | "right" | "top" | "bottom", THREE.Texture> | null {
+  type FaceKey = "front" | "back" | "left" | "right" | "top" | "bottom";
+  const [textures, setTextures] = useState<Record<FaceKey, THREE.Texture> | null>(null);
+
+  useEffect(() => {
+    if (!url) {
+      setTextures(null);
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled) return;
+      // Cell column index in the grid: 0 = left, 1 = middle, 2 = right.
+      // Cell row index: 0 = top of image, 1 = bottom.
+      // Within each 1/3-wide cell, the depth panel is the RIGHT half,
+      // i.e. offset.u in [col/3 + 1/6, col/3 + 1/3], width 1/6.
+      // V is bottom-up in three.js texture space, so row 0 of the image
+      // (top) maps to v=[1/2, 1] and row 1 (bottom) maps to v=[0, 1/2].
+      const make = (col: 0 | 1 | 2, row: 0 | 1) => {
+        const tex = new THREE.Texture(img);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.generateMipmaps = false;
+        // Crop to the depth half of the (col, row) cell.
+        tex.offset.set(col / 3 + 1 / 6, row === 0 ? 1 / 2 : 0);
+        tex.repeat.set(1 / 6, 1 / 2);
+        tex.needsUpdate = true;
+        return tex;
+      };
+      // Mapping cube faces (post Z-up→Y-up rotation) to recon-grid cells:
+      //   Cube face   → grid cell (column, row)
+      //   top         → (0, 0)  +Z top
+      //   right       → (1, 0)  +X right
+      //   front       → (2, 0)  +Y front
+      //   bottom      → (0, 1)  -Z bottom
+      //   left        → (1, 1)  -X left
+      //   back        → (2, 1)  -Y back
+      const result: Record<FaceKey, THREE.Texture> = {
+        top: make(0, 0),
+        right: make(1, 0),
+        front: make(2, 0),
+        bottom: make(0, 1),
+        left: make(1, 1),
+        back: make(2, 1),
+      };
+      setTextures(result);
+    };
+    img.onerror = () => {
+      if (!cancelled) {
+        console.warn(`Failed to load ortho grid ${url}`);
+        setTextures(null);
+      }
+    };
+    img.src = url;
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
+  return textures;
+}
+
+function useScanPoints(
+  count: number,
+  sourceGeom: THREE.BufferGeometry | null = null,
+) {
+  // Base point positions plus per-point spherical coords used to
+  // drive the sound-wave ripple. When `sourceGeom` is provided we
+  // sample its vertices (so the cloud reads as the actual scanned
+  // part, not a procedural sphere); otherwise we fall back to a
+  // Fibonacci unit-sphere distribution.
   return useMemo(() => {
     const base = new Float32Array(count * 3);
     const phis = new Float32Array(count);
     const thetas = new Float32Array(count);
-    for (let i = 0; i < count; i++) {
-      const phi = Math.acos(1 - (2 * (i + 0.5)) / count);
-      const theta = Math.PI * (1 + Math.sqrt(5)) * i;
-      phis[i] = phi;
-      thetas[i] = theta;
-      base[i * 3] = Math.cos(theta) * Math.sin(phi);
-      base[i * 3 + 1] = Math.sin(theta) * Math.sin(phi);
-      base[i * 3 + 2] = Math.cos(phi);
+
+    if (sourceGeom) {
+      const posAttr = sourceGeom.getAttribute("position") as THREE.BufferAttribute;
+      const total = posAttr.count;
+      for (let i = 0; i < count; i++) {
+        const idx = Math.floor(Math.random() * total);
+        const x = posAttr.getX(idx);
+        const y = posAttr.getY(idx);
+        const z = posAttr.getZ(idx);
+        base[i * 3] = x;
+        base[i * 3 + 1] = y;
+        base[i * 3 + 2] = z;
+        const r = Math.sqrt(x * x + y * y + z * z) || 1;
+        phis[i] = Math.acos(Math.max(-1, Math.min(1, z / r)));
+        thetas[i] = Math.atan2(y, x);
+      }
+    } else {
+      for (let i = 0; i < count; i++) {
+        const phi = Math.acos(1 - (2 * (i + 0.5)) / count);
+        const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+        phis[i] = phi;
+        thetas[i] = theta;
+        base[i * 3] = Math.cos(theta) * Math.sin(phi);
+        base[i * 3 + 1] = Math.sin(theta) * Math.sin(phi);
+        base[i * 3 + 2] = Math.cos(phi);
+      }
     }
     return { base, phis, thetas, count };
-  }, [count]);
+  }, [count, sourceGeom]);
 }
 
 /* ---------------- Reconstructed shape source ----------------
  * Single source of truth for the "reconstructed" mesh that the rest
- * of the pipeline shows. Right now this returns a mock sphere; once
- * real .ply reconstruction lands, swap the body of this hook to
- * return a BufferGeometry built from the user's point cloud
- * (e.g. via Poisson reconstruction). Every downstream component
- * (final mesh, unfolded-cube view tiles, fold/spin showcase) will
- * automatically pick up the new shape — no other code changes needed.
+ * of the pipeline shows. When the user has selected a demo sample,
+ * `override` is the loaded STL geometry; otherwise we fall back to
+ * the procedural sphere so the staged animation always has something
+ * to draw before the STL has finished loading.
  */
-function useReconstructedGeometry(): THREE.BufferGeometry {
+function useReconstructedGeometry(
+  override: THREE.BufferGeometry | null = null,
+): THREE.BufferGeometry {
   return useMemo(() => {
-    // MOCK: a sphere. Replace with parsed .ply mesh in the future.
+    if (override) return override;
     return new THREE.SphereGeometry(1.35, 64, 48);
-  }, []);
+  }, [override]);
 }
 
 /* ============================================================
@@ -455,26 +629,46 @@ const sharedRotation = { y: 0 };
 
 interface PipelineSceneProps {
   stage: Stage;
+  /** Geometry the point cloud is sampled from (the noisy scan). Falls
+   *  back to a sphere while loading. */
+  cloudGeometry?: THREE.BufferGeometry | null;
+  /** Geometry the stage-3 triangle build draws — i.e. the
+   *  reconstruction (or GT, or backend result depending on caller).
+   *  Falls back to a sphere while loading. */
+  meshGeometry?: THREE.BufferGeometry | null;
+  /** True while the backend /process call is still running. When set,
+   *  the scene holds at end-of-stage-2 (cloud calm + slow spin)
+   *  instead of advancing into the triangle build. */
+  stalled?: boolean;
 }
 
 /**
  * The hero 3D viewport that morphs as the pipeline progresses.
  * - Stage ≤1 : raw point cloud, full sound-wave ripple
- * - Stage 2  : ripple smoothly decays to a calm static sphere of points
+ * - Stage 2  : ripple smoothly decays to a calm static cloud of points
  * - Stage 3  : 1) hold the calm cloud for ~1s
  *              2) triangles + wire build over the cloud
  *              3) points fade out as triangles cover them
- *              4) wireframe outline fades out, leaving the solid sphere
- * - Stage 4+ : static solid sphere
+ *              4) wireframe outline fades out, leaving the solid mesh
+ * - Stage 4+ : static solid mesh
+ *
+ * The cloud and the reconstructed surface are split intentionally:
+ * `cloudGeometry` is the noisy scan input, while `meshGeometry` is the
+ * clean stand-in we reveal once the backend has reached a ready state.
  */
-function PipelineScene({ stage }: PipelineSceneProps) {
+function PipelineScene({
+  stage,
+  cloudGeometry = null,
+  meshGeometry = null,
+  stalled = false,
+}: PipelineSceneProps) {
   const groupRef = useRef<THREE.Group>(null);
   const pointsRef = useRef<THREE.Points>(null);
   const pointsMatRef = useRef<THREE.PointsMaterial>(null);
   const solidGeomRef = useRef<THREE.BufferGeometry>(null);
   const wireGeomRef = useRef<THREE.BufferGeometry>(null);
   const wireMatRef = useRef<THREE.LineBasicMaterial>(null);
-  const { base, phis, thetas, count } = useScanPoints(3200);
+  const { base, count } = useScanPoints(3200, cloudGeometry);
 
   // Mutable position buffer we update each frame for the sound-wave ripple.
   const positions = useMemo(() => new Float32Array(count * 3), [count]);
@@ -484,9 +678,8 @@ function PipelineScene({ stage }: PipelineSceneProps) {
   // appears to grow over the surface rather than randomly flickering on.
   // Triangle-soup of the reconstructed mesh, sorted top→bottom so the
   // surface appears to grow over the point cloud rather than randomly
-  // flickering on. Sourced from useReconstructedGeometry so that real
-  // .ply input will Just Work here.
-  const sourceGeometry = useReconstructedGeometry();
+  // flickering on.
+  const sourceGeometry = useReconstructedGeometry(meshGeometry);
   const { triPositions, triNormals, wirePositions, triCount } = useMemo(() => {
     const idx = sourceGeometry.getIndex();
     const pos = sourceGeometry.getAttribute("position") as THREE.BufferAttribute;
@@ -587,8 +780,10 @@ function PipelineScene({ stage }: PipelineSceneProps) {
      */
     if (groupRef.current) {
       let yRot = sharedRotation.y;
-      if (stage <= 2) {
+      if (stage <= 1) {
         yRot = 0;
+      } else if (stage === 2) {
+        yRot = stalled ? sharedRotation.y + delta * 0.22 : 0;
       } else if (stage === 3) {
         // Drive an exact, complete 360°: clamp t to [0, 1] so the last
         // frame is guaranteed to land at k=1 → yRot = 2π (≡ 0 mod 2π).
@@ -606,6 +801,11 @@ function PipelineScene({ stage }: PipelineSceneProps) {
     }
 
     // ---- Point cloud ripple ----
+    // Each point breathes radially (around the geometry's centroid =
+    // the origin, since the STL is centered on load) by a multiplicative
+    // factor. As `amp` decays in stage 2, the cloud settles back onto
+    // the actual STL surface — which is exactly where the triangles in
+    // stage 3 will appear.
     if (pointsRef.current && showPoints) {
       const t = state.clock.elapsedTime;
       // Stage 0/1: full amplitude. Stage 2: ease 0.18 → 0 over ~3.4s. Stage 3+: calm.
@@ -617,17 +817,24 @@ function PipelineScene({ stage }: PipelineSceneProps) {
       } else if (stage >= 3) {
         amp = 0;
       }
-      const baseR = 1.25;
+      // Sit the cloud slightly inside the mesh surface so the triangles
+      // visibly grow OVER the points during stage 3. 0.93 keeps the
+      // existing sphere-fallback look (cloud r=1.25 inside mesh r=1.35).
+      const innerScale = 0.93;
       for (let i = 0; i < count; i++) {
-        const phi = phis[i];
-        const theta = thetas[i];
+        const bx = base[i * 3];
+        const by = base[i * 3 + 1];
+        const bz = base[i * 3 + 2];
+        // Cheap per-point wave seeded by position so different parts
+        // of the cloud breathe out of phase, just like the old
+        // phi/theta-driven ripple did on the sphere.
         const wave =
-          Math.sin(phi * 6 - t * 2.4) * 0.6 +
-          Math.cos(theta * 3 + t * 1.7) * 0.4;
-        const r = baseR * (1 + amp * wave);
-        positions[i * 3] = r * Math.cos(theta) * Math.sin(phi);
-        positions[i * 3 + 1] = r * Math.sin(theta) * Math.sin(phi);
-        positions[i * 3 + 2] = r * Math.cos(phi);
+          Math.sin(bx * 4.2 - t * 2.4) * 0.6 +
+          Math.cos(bz * 2.4 + t * 1.7) * 0.4;
+        const scale = innerScale * (1 + amp * wave);
+        positions[i * 3] = bx * scale;
+        positions[i * 3 + 1] = by * scale;
+        positions[i * 3 + 2] = bz * scale;
       }
       const attr = pointsRef.current.geometry.attributes
         .position as THREE.BufferAttribute;
@@ -927,6 +1134,10 @@ interface CubeFaceProps {
   silhouette: THREE.Shape;
   /** Cube edge length — used to size the face plane. */
   edge: number;
+  /** Optional depth-panel texture for this face (from the ortho recon
+   *  grid). When provided the silhouette is hidden and the texture is
+   *  shown full-bleed across the panel. */
+  orthoTexture?: THREE.Texture | null;
 }
 
 function CubeFace({
@@ -939,11 +1150,13 @@ function CubeFace({
   opacity,
   silhouette,
   edge,
+  orthoTexture = null,
 }: CubeFaceProps) {
   const hingeRef = useRef<THREE.Group>(null);
   const panelMatRef = useRef<THREE.MeshStandardMaterial>(null);
   const borderMatRef = useRef<THREE.LineBasicMaterial>(null);
   const shapeMatRef = useRef<THREE.MeshStandardMaterial>(null);
+  const orthoMatRef = useRef<THREE.MeshBasicMaterial>(null);
 
   // Build a square outline once so each face has a crisp border.
   const borderPoints = useMemo(() => {
@@ -967,12 +1180,13 @@ function CubeFace({
       hingeRef.current.rotation.y = hingeAxis[1] * foldAngle * k;
       hingeRef.current.rotation.z = hingeAxis[2] * foldAngle * k;
     }
-    // All three layers fade together so the panel reads as a single solid
+    // All four layers fade together so the panel reads as a single solid
     // card. Background is fully opaque so the folded cube hides whatever's
     // behind it (no see-through to the bridge mesh).
     if (panelMatRef.current) panelMatRef.current.opacity = opacity;
     if (borderMatRef.current) borderMatRef.current.opacity = opacity * 0.65;
     if (shapeMatRef.current) shapeMatRef.current.opacity = opacity;
+    if (orthoMatRef.current) orthoMatRef.current.opacity = opacity;
   });
 
   return (
@@ -1011,24 +1225,35 @@ function CubeFace({
             opacity={0}
           />
         </lineSegments>
-        {/* Flat 2D silhouette of the shape from this side — solid fill in a
-            soft slate that reads against the white panel. Lit so it gets a
-            faint gradient as panels fold (subtle but rich). */}
-        {/* Silhouette is in true world-space units → render at scale=1 so
-            it always matches the underlying mesh's exact projected size,
-            regardless of geometry (works for sphere mock and real .ply). */}
-        <mesh position={[0, 0, 0.003]}>
-          <shapeGeometry args={[silhouette]} />
-          <meshStandardMaterial
-            ref={shapeMatRef}
-            color="#cbd5e1"
-            roughness={0.85}
-            metalness={0}
-            transparent
-            opacity={0}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
+        {/* Either the orthographic depth panel from the recon-grid PNG
+            (when a sample is selected), or the procedural silhouette
+            (sphere fallback). Same geometry slot — just different fill. */}
+        {orthoTexture ? (
+          <mesh position={[0, 0, 0.003]}>
+            <planeGeometry args={[edge, edge]} />
+            <meshBasicMaterial
+              ref={orthoMatRef}
+              map={orthoTexture}
+              transparent
+              opacity={0}
+              toneMapped={false}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+        ) : (
+          <mesh position={[0, 0, 0.003]}>
+            <shapeGeometry args={[silhouette]} />
+            <meshStandardMaterial
+              ref={shapeMatRef}
+              color="#cbd5e1"
+              roughness={0.85}
+              metalness={0}
+              transparent
+              opacity={0}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+        )}
       </group>
     </group>
   );
@@ -1037,12 +1262,22 @@ function CubeFace({
 interface UnfoldFoldSceneProps {
   /** Stage-4 elapsed time in seconds. */
   elapsed: number;
+  /** Loaded sample STL; falls back to sphere when null. */
+  sampleGeometry?: THREE.BufferGeometry | null;
+  /** Six depth-panel textures keyed by FaceId. When provided each
+   *  cube face shows the matching orthographic depth view from the
+   *  pipeline's recon-grid PNG. */
+  orthoTextures?: Record<FaceId, THREE.Texture> | null;
 }
 
-function UnfoldFoldScene({ elapsed }: UnfoldFoldSceneProps) {
+function UnfoldFoldScene({
+  elapsed,
+  sampleGeometry = null,
+  orthoTextures = null,
+}: UnfoldFoldSceneProps) {
   const groupRef = useRef<THREE.Group>(null);
   const sphereMatRef = useRef<THREE.MeshStandardMaterial>(null);
-  const sourceGeometry = useReconstructedGeometry();
+  const sourceGeometry = useReconstructedGeometry(sampleGeometry);
   const silhouettes = useFaceSilhouettes(sourceGeometry);
 
   // Cube edge length — derived from the source geometry's bounding box
@@ -1310,6 +1545,7 @@ function UnfoldFoldScene({ elapsed }: UnfoldFoldSceneProps) {
       opacity: cubeOpacity * faceOpacityFor("front"),
       silhouette: silhouettes.front,
       edge,
+      orthoTexture: orthoTextures?.front ?? null,
     },
     {
       face: "right",
@@ -1321,6 +1557,7 @@ function UnfoldFoldScene({ elapsed }: UnfoldFoldSceneProps) {
       opacity: cubeOpacity * faceOpacityFor("right"),
       silhouette: silhouettes.right,
       edge,
+      orthoTexture: orthoTextures?.right ?? null,
     },
     {
       face: "left",
@@ -1332,6 +1569,7 @@ function UnfoldFoldScene({ elapsed }: UnfoldFoldSceneProps) {
       opacity: cubeOpacity * faceOpacityFor("left"),
       silhouette: silhouettes.left,
       edge,
+      orthoTexture: orthoTextures?.left ?? null,
     },
     {
       face: "top",
@@ -1343,6 +1581,7 @@ function UnfoldFoldScene({ elapsed }: UnfoldFoldSceneProps) {
       opacity: cubeOpacity * faceOpacityFor("top"),
       silhouette: silhouettes.top,
       edge,
+      orthoTexture: orthoTextures?.top ?? null,
     },
     {
       face: "bottom",
@@ -1354,6 +1593,7 @@ function UnfoldFoldScene({ elapsed }: UnfoldFoldSceneProps) {
       opacity: cubeOpacity * faceOpacityFor("bottom"),
       silhouette: silhouettes.bottom,
       edge,
+      orthoTexture: orthoTextures?.bottom ?? null,
     },
   ];
 
@@ -1399,6 +1639,7 @@ function UnfoldFoldScene({ elapsed }: UnfoldFoldSceneProps) {
             opacity={cubeOpacity * faceOpacityFor("back")}
             silhouette={silhouettes.back}
             edge={edge}
+            orthoTexture={orthoTextures?.back ?? null}
           />
         </group>
       </group>
@@ -1514,9 +1755,13 @@ function AxisGizmo() {
 /** Top of the `Podium` upper disc in local space (matches LegoPodiumScene layout). */
 const PODIUM_DECK_Y = 0.05;
 
-function RevealedMeshOnPodium() {
+function RevealedMeshOnPodium({
+  sampleGeometry = null,
+}: {
+  sampleGeometry?: THREE.BufferGeometry | null;
+}) {
   const meshRef = useRef<THREE.Group>(null);
-  const sourceGeometry = useReconstructedGeometry();
+  const sourceGeometry = useReconstructedGeometry(sampleGeometry);
   const yLift = useMemo(() => {
     const g = sourceGeometry;
     g.computeBoundingBox();
@@ -1802,6 +2047,57 @@ function Stage0LeftCopy() {
   );
 }
 
+// 4 curated DeepCAD samples shown as demo cards. The sample_id MUST
+// match an entry in backend/sample_data/manifest.json so /process can
+// resolve it. The card preview renders the actual *noisy* reconstructed
+// STL as a point cloud — that's the messy "scan" input the pipeline
+// starts from, framed correctly for the user.
+type DemoSample = {
+  sample_id: string;
+  display_name: string;
+  /** Public-served noisy STL the card visualises as a point cloud. */
+  cloudStl: string;
+  /** Public-served clean STL used as the renderable stand-in for the
+   *  backend CAD result until we can mesh / render the generated STEP. */
+  cleanStl: string;
+  /** 2400×1000 px PNG produced by the scan pipeline: 6 cells in a
+   *  3×2 grid, each cell split RGB | depth. The cube scene at stage 4
+   *  slices out each cell's depth half and applies it as the matching
+   *  face texture. */
+  orthoGrid: string;
+};
+
+const DEMO_SAMPLES: DemoSample[] = [
+  {
+    sample_id: "deepcadimg_000035",
+    display_name: "Flanged Boss",
+    cloudStl: "/demos/deepcadimg_000035_recon_noisy.stl",
+    cleanStl: "/demos/deepcadimg_000035.stl",
+    orthoGrid: "/demos/ortho_deepcadimg_000035_recon_grid.png",
+  },
+  {
+    sample_id: "deepcadimg_002354",
+    display_name: "Stepped Plate",
+    cloudStl: "/demos/deepcadimg_002354_recon_noisy.stl",
+    cleanStl: "/demos/deepcadimg_002354.stl",
+    orthoGrid: "/demos/ortho_deepcadimg_002354_recon_grid.png",
+  },
+  {
+    sample_id: "deepcadimg_117514",
+    display_name: "Slotted Bracket",
+    cloudStl: "/demos/deepcadimg_117514_recon_noisy.stl",
+    cleanStl: "/demos/deepcadimg_117514.stl",
+    orthoGrid: "/demos/ortho_deepcadimg_117514_recon_grid.png",
+  },
+  {
+    sample_id: "deepcadimg_128105",
+    display_name: "Drilled Block",
+    cloudStl: "/demos/deepcadimg_128105_recon_noisy.stl",
+    cleanStl: "/demos/deepcadimg_128105.stl",
+    orthoGrid: "/demos/ortho_deepcadimg_128105_recon_grid.png",
+  },
+];
+
 const Workflow = () => {
   const navigate = useNavigate();
   const [stage, setStage] = useState<Stage>(0);
@@ -1809,9 +2105,102 @@ const Workflow = () => {
   const [stageElapsed, setStageElapsed] = useState(0);
   const [demoOpen, setDemoOpen] = useState(false);
 
-  const startPipeline = () => {
+  // Backend pipeline state. Lives alongside the staged animation:
+  // clicking a demo card fires both the /process POST and the
+  // setStage(1) animation; the animation does NOT block on the API.
+  const [pipelineRunning, setPipelineRunning] = useState(false);
+  const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
+  const [pipelineSampleId, setPipelineSampleId] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const backendReadyRef = useRef(false);
+  const stageStartRef = useRef(performance.now());
+
+  // Selected sample's noisy-cloud STL — fed into PipelineScene /
+  // UnfoldFoldScene so the staged animation visualises the actual
+  // sample the user clicked, not a procedural sphere.
+  const [selectedCloudStl, setSelectedCloudStl] = useState<string | null>(null);
+  const inputGeometry = useNormalizedStl(selectedCloudStl);
+  const selectedSample = useMemo(
+    () => (pipelineSampleId ? DEMO_SAMPLES.find((s) => s.sample_id === pipelineSampleId) ?? null : null),
+    [pipelineSampleId],
+  );
+  const cleanPreviewGeometry = useNormalizedStl(selectedSample?.cleanStl ?? null);
+  const orthoTextures = useOrthoFaceTextures(selectedSample?.orthoGrid ?? null);
+
+  // The backend currently gives us STEP as the primary generated CAD
+  // artefact. Until we have a STEP meshing/render path on the frontend,
+  // stages 3–5 render the curated clean STL as a stand-in while backend
+  // readiness is still driven by the real pipeline response.
+  const backendStepUrl = useMemo(
+    () => resolveOutputUrl(pipelineResult?.step_url ?? null),
+    [pipelineResult],
+  );
+  const backendReady = Boolean(pipelineResult?.success && backendStepUrl);
+  const renderReady = backendReady || Boolean(cleanPreviewGeometry);
+  // The workflow pipeline view should continue to visualise the noisy
+  // reconstruction, not the polished clean stand-in. The clean STL is
+  // only used later as a demo-only fallback for the podium reveal.
+  const stageMeshGeometry = inputGeometry;
+  const stage5Geometry = cleanPreviewGeometry ?? inputGeometry;
+  const usingLocalDemoFallback = Boolean(selectedSample && cleanPreviewGeometry && !backendReady);
+
+  // Cancel any in-flight request on unmount.
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    backendReadyRef.current = renderReady;
+  }, [renderReady]);
+
+  const startPipeline = (sampleId?: string) => {
     setDemoOpen(false);
     setStage(1);
+    setPipelineResult(null);
+    setPipelineError(null);
+    setPipelineSampleId(sampleId ?? null);
+
+    // Update the cloud STL for the staged scene. Lookup ensures we
+    // only pull from the curated DEMO_SAMPLES list so we never feed
+    // an arbitrary URL into the loader.
+    const sample = sampleId
+      ? DEMO_SAMPLES.find((s) => s.sample_id === sampleId)
+      : null;
+    setSelectedCloudStl(sample?.cloudStl ?? null);
+
+    if (!sampleId) return;
+
+    // Cancel any prior request and start a fresh one.
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setPipelineRunning(true);
+
+    processSample(sampleId, ctrl.signal)
+      .then((res) => {
+        if (ctrl.signal.aborted) return;
+        setPipelineResult(res);
+        if (!res.success && res.error) {
+          setPipelineError(res.error);
+        }
+      })
+      .catch((err: unknown) => {
+        if (ctrl.signal.aborted) return;
+        const msg =
+          err instanceof PipelineError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : String(err);
+        setPipelineError(msg);
+      })
+      .finally(() => {
+        if (!ctrl.signal.aborted) setPipelineRunning(false);
+      });
   };
 
   // Per-stage durations (ms). Stage 4 hosts the unfold→fold→spin→fade
@@ -1819,7 +2208,7 @@ const Workflow = () => {
   const STAGE_DURATIONS: Record<Exclude<Stage, 0 | 5>, number> = {
     1: 3000,
     2: 3000,
-    3: 5000,
+    3: 6200,
     4: 16000,
   };
 
@@ -1831,6 +2220,11 @@ const Workflow = () => {
     4: 40,
   };
   const TOTAL_WEIGHT = Object.values(STAGE_WEIGHTS).reduce((a, b) => a + b, 0);
+  const holdAtStage2 =
+    stage === 2 &&
+    pipelineSampleId !== null &&
+    !renderReady &&
+    !pipelineError;
 
   // Drive the upload progress when in stage 1.
   useEffect(() => {
@@ -1851,15 +2245,19 @@ const Workflow = () => {
   // Auto-advance through stages once started.
   useEffect(() => {
     if (stage === 0 || stage === 5) return;
-    const id = window.setTimeout(
-      () => setStage((s) => ((s + 1) as Stage)),
-      STAGE_DURATIONS[stage as Exclude<Stage, 0 | 5>],
-    );
+    const duration = STAGE_DURATIONS[stage as Exclude<Stage, 0 | 5>];
+    const elapsedInStage = performance.now() - stageStartRef.current;
+    const remaining = Math.max(0, duration - elapsedInStage);
+    const id = window.setTimeout(() => {
+      if (stage === 2 && !backendReadyRef.current && !pipelineError) return;
+      setStage((s) => (s === stage ? ((s + 1) as Stage) : s));
+    }, remaining);
     return () => window.clearTimeout(id);
-  }, [stage]);
+  }, [stage, renderReady, pipelineError]);
 
   // Track elapsed time within the current stage to drive the loading bar.
   useEffect(() => {
+    stageStartRef.current = performance.now();
     setStageElapsed(0);
     if (stage === 0 || stage === 5) return;
     const start = performance.now();
@@ -1974,8 +2372,9 @@ const Workflow = () => {
                   </div>
                 </div>
 
-                {/* Demo overlay — 4 placeholder cards. Click any card to
-                    kick off the same pipeline that the upload button used to. */}
+                {/* Demo overlay — 4 real DeepCAD samples. Clicking a card
+                    kicks off the same animated pipeline AND fires off the
+                    backend /process call in parallel. */}
                 {demoOpen && (
                   <div
                     className="absolute inset-0 z-30 flex items-center justify-center bg-background/70 backdrop-blur-md animate-fade-in"
@@ -2000,16 +2399,18 @@ const Workflow = () => {
                         Pick a sample to run the full pipeline.
                       </p>
                       <div className="grid grid-cols-2 gap-4 sm:gap-5">
-                        {[0, 1, 2, 3].map((i) => (
+                        {DEMO_SAMPLES.map((s) => (
                           <button
-                            key={i}
+                            key={s.sample_id}
                             type="button"
-                            onClick={startPipeline}
+                            onClick={() => startPipeline(s.sample_id)}
                             className="group relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-border bg-surface/60 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-foreground/40 hover:shadow-lg"
                           >
+                            {/* Faint blueprint backdrop so the dark
+                                point cloud stays readable. */}
                             <div
                               aria-hidden
-                              className="absolute inset-0 opacity-[0.5]"
+                              className="pointer-events-none absolute inset-0 opacity-[0.35]"
                               style={{
                                 backgroundImage:
                                   "linear-gradient(hsl(220 14% 84% / 0.7) 1px, transparent 1px), linear-gradient(90deg, hsl(220 14% 84% / 0.7) 1px, transparent 1px)",
@@ -2020,10 +2421,15 @@ const Workflow = () => {
                                   "radial-gradient(ellipse at 50% 50%, black 0%, transparent 80%)",
                               }}
                             />
-                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground transition-colors group-hover:text-foreground">
-                              <Play className="h-5 w-5" strokeWidth={1.6} />
-                              <span className="font-mono text-[10px] uppercase tracking-[0.3em]">
-                                Sample {String(i + 1).padStart(2, "0")}
+                            <div className="absolute inset-0 transition-transform duration-200 ease-out group-hover:scale-[1.03]">
+                              <NoisyCloudPreview src={s.cloudStl} />
+                            </div>
+                            <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-background/95 via-background/70 to-transparent px-3 pb-2 pt-6">
+                              <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-foreground">
+                                {s.display_name}
+                              </span>
+                              <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+                                {s.sample_id.replace("deepcadimg_", "#")}
                               </span>
                             </div>
                           </button>
@@ -2080,7 +2486,12 @@ const Workflow = () => {
                 <directionalLight position={[4, 5, 3]} intensity={0.7} />
                 <directionalLight position={[-3, -2, -1]} intensity={0.25} />
                 <Suspense fallback={null}>
-                  <PipelineScene stage={stage} />
+                  <PipelineScene
+                    stage={stage}
+                    cloudGeometry={inputGeometry}
+                    meshGeometry={stageMeshGeometry}
+                    stalled={holdAtStage2 && stageElapsed >= STAGE_DURATIONS[2]}
+                  />
                 </Suspense>
               </Canvas>
             )}
@@ -2104,77 +2515,54 @@ const Workflow = () => {
                 <directionalLight position={[4, 5, 3]} intensity={0.7} />
                 <directionalLight position={[-3, -2, -1]} intensity={0.25} />
                 <Suspense fallback={null}>
-                  <UnfoldFoldScene elapsed={stageElapsed / 1000} />
+                  <UnfoldFoldScene
+                    elapsed={stageElapsed / 1000}
+                    sampleGeometry={stageMeshGeometry}
+                    orthoTextures={orthoTextures}
+                  />
                 </Suspense>
               </Canvas>
             )}
 
-            {/* Subtle left-side narration — micro-captions explaining the
-                current phase of the animation. Visible during stages 2-4
-                (point-cloud → reconstruct → unfold/fold). Each line fades
-                in/out as its phase becomes active. */}
-            {stage >= 2 && stage <= 4 && (
-              <PhaseNarration stage={stage} elapsed={stageElapsed / 1000} />
-            )}
-
-            {/* Stage 5 — split: vertical depth column on the left, mesh shifts right */}
+            {/* Stage 5 — hand off directly into the 3-podium comparison scene */}
             {stage === 5 && (
-              <div className="absolute inset-0 flex min-h-0 flex-col md:flex-row animate-fade-in">
-                {/* LEFT: vertical column of orthographic depth placeholders */}
-                <div className="flex w-full min-w-0 max-h-[38vh] items-center justify-center border-b border-border/40 px-4 py-3 sm:max-h-[40vh] md:w-[34%] md:min-h-0 md:max-h-none md:min-w-[240px] md:max-w-[340px] md:border-b-0 md:px-6 md:py-6">
-                  <DepthColumn />
-                </div>
-                {/* RIGHT: rotating mesh slides into place + Next button */}
-                <div className="mesh-shift-right relative flex min-h-0 flex-1 items-center justify-center max-md:min-h-[45vh]">
-                  <Canvas
-                    shadows
-                    dpr={[1, 2]}
-                    camera={{ position: [0, 1.35, 9.6], fov: 32 }}
-                    gl={{ antialias: true, alpha: true }}
-                    onCreated={({ camera }) => {
-                      camera.position.set(0, 1.35, 9.6);
-                      camera.up.set(0, 1, 0);
-                      // Slight look-down: aim just below the mesh/podium centroid (same read as hero podium).
-                      camera.lookAt(0, 0.4, 0);
-                    }}
-                  >
-                    <ambientLight intensity={0.68} />
-                    <directionalLight
-                      position={[5, 8, 4]}
-                      intensity={0.78}
-                      castShadow
-                      shadow-mapSize-width={1024}
-                      shadow-mapSize-height={1024}
-                      shadow-camera-near={0.4}
-                      shadow-camera-far={24}
-                      shadow-camera-left={-6}
-                      shadow-camera-right={6}
-                      shadow-camera-top={6}
-                      shadow-camera-bottom={-6}
-                      shadow-bias={-0.0004}
-                    />
-                    <directionalLight position={[-4, 2.5, -2]} intensity={0.28} />
-                    <Suspense fallback={null}>
-                      <Environment preset="studio" environmentIntensity={0.52} />
-                      <RevealedMeshOnPodium />
-                    </Suspense>
-                  </Canvas>
-                  <button
-                    onClick={() => navigate("/demo")}
-                    className="absolute bottom-6 right-6 inline-flex items-center gap-2 rounded-full bg-foreground px-5 py-2.5 text-xs font-medium uppercase tracking-[0.2em] text-background shadow-md transition-all hover:shadow-lg"
-                  >
-                    Next
-                    <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} />
-                  </button>
-                </div>
+              <div className="absolute inset-0 animate-fade-in">
+                <Scene />
               </div>
             )}
 
 
             {/* Bottom-left axis gizmo — visible across every 3D stage,
                 rotates in lockstep with the hero shape. */}
-            {stage >= 2 && <AxisGizmo />}
+            {stage >= 2 && stage <= 4 && <AxisGizmo />}
           </div>
+
+          {/* Backend pipeline status badge — surfaces real /process state
+              without coupling to the staged animation timing. */}
+          {stage !== 0 && pipelineSampleId && (
+            <div className="mt-3 flex flex-shrink-0 items-center justify-center gap-2 animate-fade-in">
+              {pipelineRunning && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface/70 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2} />
+                  Backend · {pipelineSampleId}
+                </span>
+              )}
+              {!pipelineRunning && pipelineResult?.success && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.22em] text-emerald-700 dark:text-emerald-300">
+                  <CheckCircle2 className="h-3 w-3" strokeWidth={2} />
+                  Backend ready ·{" "}
+                  {pipelineResult.confidence ?? "ok"} ·{" "}
+                  {pipelineResult.validation?.executes ? "executes" : "no exec"}
+                </span>
+              )}
+              {!pipelineRunning && pipelineError && !usingLocalDemoFallback && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-red-500/40 bg-red-500/10 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.22em] text-red-700 dark:text-red-300">
+                  <X className="h-3 w-3" strokeWidth={2} />
+                  Backend error · {pipelineError.slice(0, 80)}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Overall pipeline loading bar */}
           {stage !== 0 && (

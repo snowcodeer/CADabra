@@ -1,20 +1,19 @@
-import { Suspense, forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import { Environment, ContactShadows, OrbitControls, Html } from "@react-three/drei";
+import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { Podium } from "./Podium";
-import { PointCloudObject } from "./PointCloudObject";
-import { GroundTruthObject } from "./GroundTruthObject";
-import { FaceInteractionLayer } from "./ExtrudableObject";
+import { API_BASE } from "@/lib/api";
 import {
-  BASE_SIZE,
-  computeBody,
-  Extrusion,
-  FaceKey,
-  ZERO_EXTRUSION,
-} from "./extrusion";
+  SAMPLE_000035_INITIAL_PARAMS,
+  Sample000035Solid,
+  type Sample000035Params,
+  getSample000035TopY,
+} from "./Sample000035EditorScene";
 
-type ObjectId = "cloud" | "generated" | "truth";
+type FaceKey = "px" | "nx" | "py" | "ny" | "pz" | "nz";
+type ActiveDrag = { face: FaceKey; delta: number; pin: THREE.Vector3 } | null;
 
 interface SpinningStageProps {
   /** Pause auto-rotation (e.g. while user drags this object) */
@@ -243,6 +242,420 @@ function CameraTransitionController({
 interface SceneProps {
   compareMode?: boolean;
   onAnalysis?: (a: CompareAnalysis) => void;
+  generatedParams?: Sample000035Params;
+}
+
+const DISPLAY_FRAME_TARGET = 2.7;
+const PODIUM_DECK_Y = 0.05;
+const PODIUM_CLEARANCE_Y = 0.006;
+const FACE_KEYS: FaceKey[] = ["px", "nx", "py", "ny", "pz", "nz"];
+const FACE_LABELS: Record<FaceKey, string> = {
+  px: "Right (+X)",
+  nx: "Left (−X)",
+  py: "Top (+Y)",
+  ny: "Bottom (−Y)",
+  pz: "Front (+Z)",
+  nz: "Back (−Z)",
+};
+
+function deformPoint(
+  point: THREE.Vector3,
+  bounds: THREE.Box3,
+  activeDrag: ActiveDrag,
+  mode: "solid" | "cloud",
+) {
+  if (!activeDrag || activeDrag.delta === 0) return point.clone();
+  const out = point.clone();
+  const { face, delta, pin } = activeDrag;
+  const size = new THREE.Vector3();
+  bounds.getSize(size);
+  const spanX = Math.max(size.x, 1e-4);
+  const spanY = Math.max(size.y, 1e-4);
+  const spanZ = Math.max(size.z, 1e-4);
+
+  let axisAmount = 0;
+  let radial = 1;
+  switch (face) {
+    case "px": {
+      axisAmount = THREE.MathUtils.clamp((point.x - bounds.min.x) / spanX, 0, 1);
+      const dy = point.y - pin.y;
+      const dz = point.z - pin.z;
+      radial = 1 - Math.min(1, Math.hypot(dy / spanY, dz / spanZ) / 0.85);
+      out.x += delta * (mode === "cloud" ? Math.max(0, radial) : Math.pow(axisAmount, 1.15));
+      break;
+    }
+    case "nx": {
+      axisAmount = THREE.MathUtils.clamp((bounds.max.x - point.x) / spanX, 0, 1);
+      const dy = point.y - pin.y;
+      const dz = point.z - pin.z;
+      radial = 1 - Math.min(1, Math.hypot(dy / spanY, dz / spanZ) / 0.85);
+      out.x -= delta * (mode === "cloud" ? Math.max(0, radial) : Math.pow(axisAmount, 1.15));
+      break;
+    }
+    case "py": {
+      axisAmount = THREE.MathUtils.clamp((point.y - bounds.min.y) / spanY, 0, 1);
+      const dx = point.x - pin.x;
+      const dz = point.z - pin.z;
+      radial = 1 - Math.min(1, Math.hypot(dx / spanX, dz / spanZ) / 0.85);
+      out.y += delta * (mode === "cloud" ? Math.max(0, radial) : Math.pow(axisAmount, 1.15));
+      break;
+    }
+    case "ny": {
+      axisAmount = THREE.MathUtils.clamp((bounds.max.y - point.y) / spanY, 0, 1);
+      const dx = point.x - pin.x;
+      const dz = point.z - pin.z;
+      radial = 1 - Math.min(1, Math.hypot(dx / spanX, dz / spanZ) / 0.85);
+      out.y -= delta * (mode === "cloud" ? Math.max(0, radial) : Math.pow(axisAmount, 1.15));
+      break;
+    }
+    case "pz": {
+      axisAmount = THREE.MathUtils.clamp((point.z - bounds.min.z) / spanZ, 0, 1);
+      const dx = point.x - pin.x;
+      const dy = point.y - pin.y;
+      radial = 1 - Math.min(1, Math.hypot(dx / spanX, dy / spanY) / 0.85);
+      out.z += delta * (mode === "cloud" ? Math.max(0, radial) : Math.pow(axisAmount, 1.15));
+      break;
+    }
+    case "nz": {
+      axisAmount = THREE.MathUtils.clamp((bounds.max.z - point.z) / spanZ, 0, 1);
+      const dx = point.x - pin.x;
+      const dy = point.y - pin.y;
+      radial = 1 - Math.min(1, Math.hypot(dx / spanX, dy / spanY) / 0.85);
+      out.z -= delta * (mode === "cloud" ? Math.max(0, radial) : Math.pow(axisAmount, 1.15));
+      break;
+    }
+  }
+  return out;
+}
+
+function computeBoundsFromGeometry(geometry: THREE.BufferGeometry) {
+  const attr = geometry.getAttribute("position") as THREE.BufferAttribute;
+  const box = new THREE.Box3();
+  const p = new THREE.Vector3();
+  for (let i = 0; i < attr.count; i++) {
+    p.set(attr.getX(i), attr.getY(i), attr.getZ(i));
+    box.expandByPoint(p);
+  }
+  return box;
+}
+
+function normalizeGeometryForDisplay(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const out = g.clone();
+  out.rotateX(-Math.PI / 2);
+  out.computeBoundingBox();
+  const bb = out.boundingBox!;
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  bb.getSize(size);
+  bb.getCenter(center);
+  const longest = Math.max(size.x, size.y, size.z) || 1;
+  const scale = DISPLAY_FRAME_TARGET / longest;
+  // Align every asset to the same presentation frame:
+  // - centred in X/Z
+  // - resting on the podium at minY = 0
+  out.translate(-center.x, -bb.min.y, -center.z);
+  out.scale(scale, scale, scale);
+  out.computeVertexNormals();
+  return out;
+}
+
+function useNormalizedStl(url: string | null): THREE.BufferGeometry | null {
+  const [geom, setGeom] = useState<THREE.BufferGeometry | null>(null);
+  useEffect(() => {
+    if (!url) {
+      setGeom(null);
+      return;
+    }
+    let cancelled = false;
+    const loader = new STLLoader();
+    loader.load(
+      url,
+      (g) => {
+        if (cancelled) return;
+        setGeom(normalizeGeometryForDisplay(g));
+      },
+      undefined,
+      () => {
+        if (!cancelled) setGeom(null);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+  return geom;
+}
+
+function StlSolid({
+  geometry,
+  color = "#8f97a3",
+  opacity = 1,
+  activeDrag = null,
+}: {
+  geometry: THREE.BufferGeometry | null;
+  color?: string;
+  opacity?: number;
+  activeDrag?: ActiveDrag;
+}) {
+  if (!geometry) return null;
+  const displayGeometry = useMemo(() => {
+    const attr = geometry.getAttribute("position") as THREE.BufferAttribute;
+    const bounds = computeBoundsFromGeometry(geometry);
+    const clone = geometry.clone();
+    const pos = new Float32Array(attr.count * 3);
+    const p = new THREE.Vector3();
+    for (let i = 0; i < attr.count; i++) {
+      p.set(attr.getX(i), attr.getY(i), attr.getZ(i));
+      const next = deformPoint(p, bounds, activeDrag, "solid");
+      pos[i * 3] = next.x;
+      pos[i * 3 + 1] = next.y;
+      pos[i * 3 + 2] = next.z;
+    }
+    clone.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    clone.computeVertexNormals();
+    return clone;
+  }, [geometry, activeDrag]);
+
+  useEffect(() => () => displayGeometry.dispose(), [displayGeometry]);
+  return (
+    <group position={[0, PODIUM_DECK_Y + PODIUM_CLEARANCE_Y, 0]}>
+      <mesh geometry={displayGeometry} castShadow receiveShadow>
+        <meshStandardMaterial
+          color={color}
+          roughness={0.28}
+          metalness={0.12}
+          transparent={opacity < 1}
+          opacity={opacity}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+function StlPointCloud({
+  geometry,
+  count = 14000,
+  color = "#60a5fa",
+  activeDrag = null,
+}: {
+  geometry: THREE.BufferGeometry | null;
+  count?: number;
+  color?: string;
+  activeDrag?: ActiveDrag;
+}) {
+  const sampled = useMemo(() => {
+    if (!geometry) return null;
+    const attr = geometry.getAttribute("position") as THREE.BufferAttribute;
+    const bounds = computeBoundsFromGeometry(geometry);
+    const pts = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const idx = Math.floor(Math.random() * attr.count);
+      pts[i * 3] = attr.getX(idx) + (Math.random() - 0.5) * 0.004;
+      pts[i * 3 + 1] = attr.getY(idx) + Math.random() * 0.004;
+      pts[i * 3 + 2] = attr.getZ(idx) + (Math.random() - 0.5) * 0.004;
+    }
+    return { pts, bounds };
+  }, [geometry, count]);
+
+  const positions = useMemo(() => {
+    if (!sampled) return null;
+    const out = sampled.pts.slice();
+    if (!activeDrag) return out;
+    const p = new THREE.Vector3();
+    for (let i = 0; i < count; i++) {
+      p.set(sampled.pts[i * 3], sampled.pts[i * 3 + 1], sampled.pts[i * 3 + 2]);
+      const next = deformPoint(p, sampled.bounds, activeDrag, "cloud");
+      out[i * 3] = next.x;
+      out[i * 3 + 1] = next.y;
+      out[i * 3 + 2] = next.z;
+    }
+    return out;
+  }, [sampled, activeDrag, count]);
+
+  if (!positions || !sampled) return null;
+  return (
+    <group position={[0, PODIUM_DECK_Y + PODIUM_CLEARANCE_Y, 0]}>
+      <points>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" array={positions} count={count} itemSize={3} />
+        </bufferGeometry>
+        <pointsMaterial size={0.03} color={color} sizeAttenuation transparent opacity={0.95} />
+      </points>
+    </group>
+  );
+}
+
+function FaceDragLayer({
+  geometry,
+  activeDrag,
+  onDragChange,
+}: {
+  geometry: THREE.BufferGeometry | null;
+  activeDrag: ActiveDrag;
+  onDragChange: (drag: ActiveDrag) => void;
+}) {
+  const { gl, camera } = useThree();
+  const groupRef = useRef<THREE.Group>(null);
+  const [hovered, setHovered] = useState<FaceKey | null>(null);
+  const dragStateRef = useRef<{
+    face: FaceKey;
+    startScreen: THREE.Vector2;
+    axisScreen: THREE.Vector2;
+    pixelsPerUnit: number;
+    pin: THREE.Vector3;
+  } | null>(null);
+
+  const bounds = useMemo(
+    () => (geometry ? computeBoundsFromGeometry(geometry) : null),
+    [geometry],
+  );
+
+  const worldDirToScreen = useMemo(
+    () => (origin: THREE.Vector3, dir: THREE.Vector3) => {
+      const a = origin.clone().project(camera);
+      const b = origin.clone().add(dir).project(camera);
+      const rect = gl.domElement.getBoundingClientRect();
+      return new THREE.Vector2(((b.x - a.x) * rect.width) / 2, ((a.y - b.y) * rect.height) / 2);
+    },
+    [camera, gl],
+  );
+
+  useEffect(() => {
+    const handleMove = (ev: PointerEvent) => {
+      const state = dragStateRef.current;
+      if (!state) return;
+      const dx = ev.clientX - state.startScreen.x;
+      const dy = ev.clientY - state.startScreen.y;
+      const projected = dx * state.axisScreen.x + dy * state.axisScreen.y;
+      const delta = projected / state.pixelsPerUnit;
+      onDragChange({ face: state.face, delta, pin: state.pin.clone() });
+    };
+    const handleUp = () => {
+      if (!dragStateRef.current) return;
+      dragStateRef.current = null;
+      onDragChange(null);
+      gl.domElement.style.cursor = "default";
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
+    return () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
+    };
+  }, [gl, onDragChange]);
+
+  if (!bounds) return null;
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  bounds.getSize(size);
+  bounds.getCenter(center);
+
+  const faceDefs: Array<{
+    key: FaceKey;
+    rotation: [number, number, number];
+    position: [number, number, number];
+    plane: [number, number];
+    normal: THREE.Vector3;
+  }> = [
+    {
+      key: "px",
+      rotation: [0, Math.PI / 2, 0],
+      position: [bounds.max.x + 0.002, center.y, center.z],
+      plane: [size.z, size.y],
+      normal: new THREE.Vector3(1, 0, 0),
+    },
+    {
+      key: "nx",
+      rotation: [0, -Math.PI / 2, 0],
+      position: [bounds.min.x - 0.002, center.y, center.z],
+      plane: [size.z, size.y],
+      normal: new THREE.Vector3(-1, 0, 0),
+    },
+    {
+      key: "py",
+      rotation: [-Math.PI / 2, 0, 0],
+      position: [center.x, bounds.max.y + 0.002, center.z],
+      plane: [size.x, size.z],
+      normal: new THREE.Vector3(0, 1, 0),
+    },
+    {
+      key: "ny",
+      rotation: [Math.PI / 2, 0, 0],
+      position: [center.x, bounds.min.y - 0.002, center.z],
+      plane: [size.x, size.z],
+      normal: new THREE.Vector3(0, -1, 0),
+    },
+    {
+      key: "pz",
+      rotation: [0, 0, 0],
+      position: [center.x, center.y, bounds.max.z + 0.002],
+      plane: [size.x, size.y],
+      normal: new THREE.Vector3(0, 0, 1),
+    },
+    {
+      key: "nz",
+      rotation: [0, Math.PI, 0],
+      position: [center.x, center.y, bounds.min.z - 0.002],
+      plane: [size.x, size.y],
+      normal: new THREE.Vector3(0, 0, -1),
+    },
+  ];
+
+  return (
+    <group ref={groupRef} position={[0, PODIUM_DECK_Y + PODIUM_CLEARANCE_Y, 0]}>
+      {faceDefs.map((face) => {
+        const lit = activeDrag?.face === face.key || hovered === face.key;
+        return (
+          <mesh
+            key={face.key}
+            position={face.position}
+            rotation={face.rotation}
+            onPointerOver={(e) => {
+              e.stopPropagation();
+              setHovered(face.key);
+              if (!dragStateRef.current) gl.domElement.style.cursor = "grab";
+            }}
+            onPointerOut={() => {
+              setHovered((prev) => (prev === face.key ? null : prev));
+              if (!dragStateRef.current) gl.domElement.style.cursor = "default";
+            }}
+            onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+              e.stopPropagation();
+              (e.target as Element)?.setPointerCapture?.(e.pointerId);
+              const pin = e.point.clone();
+              groupRef.current?.worldToLocal(pin);
+              const worldOrigin = e.point.clone();
+              const worldNormal = face.normal.clone();
+              const axis = worldDirToScreen(worldOrigin, worldNormal).normalize();
+              const pixelsPerUnit = Math.max(worldDirToScreen(worldOrigin, worldNormal).length(), 30);
+              dragStateRef.current = {
+                face: face.key,
+                startScreen: new THREE.Vector2(e.clientX, e.clientY),
+                axisScreen: axis,
+                pixelsPerUnit,
+                pin,
+              };
+              onDragChange({ face: face.key, delta: 0, pin });
+              gl.domElement.style.cursor = "grabbing";
+            }}
+          >
+            <planeGeometry args={face.plane} />
+            <meshBasicMaterial color="#3b9bff" transparent opacity={lit ? 0.18 : 0} depthWrite={false} side={THREE.DoubleSide} />
+          </mesh>
+        );
+      })}
+      {activeDrag && (
+        <Html position={[activeDrag.pin.x, activeDrag.pin.y + 0.15, activeDrag.pin.z]} center distanceFactor={7} zIndexRange={[100, 0]} style={{ pointerEvents: "none" }}>
+          <div className="floating-label whitespace-nowrap">
+            {activeDrag.delta >= 0 ? "+" : ""}
+            {Math.round(activeDrag.delta * 100)}mm
+          </div>
+        </Html>
+      )}
+    </group>
+  );
 }
 
 /** Per-Compare-mode summary surfaced to the side panel. */
@@ -261,15 +674,14 @@ export interface CompareAnalysis {
   faces: Array<{ key: FaceKey; label: string; matchMm: number; missMm: number }>;
 }
 
-export function Scene({ compareMode = false, onAnalysis }: SceneProps) {
-  const [wallExtrusion, setWallExtrusion] = useState<Extrusion>(ZERO_EXTRUSION);
-  const [cloudExtrusion, setCloudExtrusion] = useState<Extrusion>(ZERO_EXTRUSION);
-  const [activeDrag, setActiveDrag] = useState<{
-    owner: ObjectId;
-    face: FaceKey;
-    delta: number;
-  } | null>(null);
-
+export function Scene({
+  compareMode = false,
+  onAnalysis,
+  generatedParams = SAMPLE_000035_INITIAL_PARAMS,
+}: SceneProps) {
+  const pointCloudGeometry = useNormalizedStl("/demos/deepcadimg_000035_recon_noisy.stl");
+  const groundTruthGeometry = useNormalizedStl("/demos/deepcadimg_000035.stl");
+  const [activeDrag, setActiveDrag] = useState<ActiveDrag>(null);
   // Shared rotation value — all three stages read from this so they spin
   // in perfect unison (same speed, same angle).
   const sharedRotation = useRef(0);
@@ -279,137 +691,43 @@ export function Scene({ compareMode = false, onAnalysis }: SceneProps) {
   // OrbitControls is briefly unmounted during the tween.
   const currentLookRef = useRef(new THREE.Vector3(0, 0.1, 0));
 
+  const compareAnalysis = useMemo<CompareAnalysis>(() => {
+    const faces = FACE_KEYS.map((key) => ({
+      key,
+      label: FACE_LABELS[key],
+      matchMm: 0,
+      missMm: 0,
+    }));
+    const deltas = [
+      Math.abs(generatedParams.baseHeightMm - SAMPLE_000035_INITIAL_PARAMS.baseHeightMm),
+      Math.abs(generatedParams.bossHeightMm - SAMPLE_000035_INITIAL_PARAMS.bossHeightMm),
+      Math.abs(
+        generatedParams.counterboreDepthMm - SAMPLE_000035_INITIAL_PARAMS.counterboreDepthMm,
+      ),
+    ];
+    const gtTotalMm =
+      SAMPLE_000035_INITIAL_PARAMS.baseHeightMm +
+      SAMPLE_000035_INITIAL_PARAMS.bossHeightMm +
+      SAMPLE_000035_INITIAL_PARAMS.counterboreDepthMm;
+    const missedMm = Math.round(deltas.reduce((sum, v) => sum + v, 0));
+    const matchedMm = Math.max(Math.round(gtTotalMm - missedMm), 0);
+    const editedFeatures = deltas.filter((v) => v > 1e-6).length;
+    const coverage = matchedMm + missedMm === 0 ? 100 : (matchedMm / (matchedMm + missedMm)) * 100;
 
-  const extrusion = useMemo<Extrusion>(() => ({
-    px: Math.max(wallExtrusion.px, cloudExtrusion.px),
-    nx: Math.max(wallExtrusion.nx, cloudExtrusion.nx),
-    py: Math.max(wallExtrusion.py, cloudExtrusion.py),
-    ny: Math.max(wallExtrusion.ny, cloudExtrusion.ny),
-    pz: Math.max(wallExtrusion.pz, cloudExtrusion.pz),
-    nz: Math.max(wallExtrusion.nz, cloudExtrusion.nz),
-  }), [wallExtrusion, cloudExtrusion]);
-
-  const handleDragStart = useCallback(
-    (owner: ObjectId) => (face: FaceKey) => {
-      setActiveDrag({ owner, face, delta: 0 });
-    },
-    [],
-  );
-
-  const handleDragMove = useCallback(
-    (owner: ObjectId) => (face: FaceKey, delta: number) => {
-      setActiveDrag((prev) =>
-        prev && prev.owner === owner ? { ...prev, face, delta } : prev,
-      );
-    },
-    [],
-  );
-
-  const handleDragEnd = useCallback(
-    (owner: ObjectId) => (face: FaceKey, delta: number) => {
-      if (owner === "cloud") {
-        setCloudExtrusion((prev) => ({
-          ...prev,
-          [face]: Math.max(prev[face], Math.max(0, delta)),
-        }));
-      } else {
-        // Drag started visually at extrusion[face] (the current max across
-        // sources). The new absolute reach is extrusion[face] + delta. Keep
-        // the longest extrusion ever recorded for this face so additional
-        // pulls never shrink the other objects' walls.
-        const candidate = Math.max(0, extrusion[face] + delta);
-        setWallExtrusion((prev) => ({
-          ...prev,
-          [face]: Math.max(prev[face], candidate),
-        }));
-      }
-      setActiveDrag((prev) => (prev && prev.owner === owner ? null : prev));
-    },
-    [extrusion],
-  );
-
-  const isDragging = !!activeDrag;
-
-  // Visual sync drag for non-owning objects (owner gets it via its own layer).
-  // For a cloud drag, only push the other walls outward if the live spike
-  // length exceeds the current longest extrusion for that face — otherwise
-  // the other objects stay put.
-  const syncDrag = activeDrag
-    ? {
-        face: activeDrag.face,
-        delta:
-          activeDrag.owner === "cloud"
-            ? Math.max(0, activeDrag.delta - extrusion[activeDrag.face])
-            : activeDrag.delta,
-      }
-    : null;
-
-  // Live top extension (object grows upward when the +Y face is pulled).
-  // Combines persisted extrusion with the in-flight drag delta so labels
-  // float just above the current top of each object in real time.
-  const liveTopY = useMemo(() => {
-    let top = extrusion.py;
-    if (activeDrag && activeDrag.face === "py") {
-      const candidate =
-        activeDrag.owner === "cloud"
-          ? activeDrag.delta
-          : extrusion.py + activeDrag.delta;
-      top = Math.max(top, candidate);
-    }
-    return top;
-  }, [extrusion.py, activeDrag]);
-
-  // Per-face diff between Generated CAD (wallExtrusion) and Ground Truth
-  // (the shared `extrusion`, which is max of cloud + wall). Anything the
-  // point cloud reached but the wall didn't = "missed" (red). The shared
-  // length both agree on = "matched" (green).
-  const faceDiff = useMemo(() => {
-    const faces: FaceKey[] = ["px", "nx", "py", "ny", "pz", "nz"];
-    const out: Record<FaceKey, { match: number; miss: number }> = {
-      px: { match: 0, miss: 0 },
-      nx: { match: 0, miss: 0 },
-      py: { match: 0, miss: 0 },
-      ny: { match: 0, miss: 0 },
-      pz: { match: 0, miss: 0 },
-      nz: { match: 0, miss: 0 },
+    return {
+      matchedFaces: 3 - editedFeatures,
+      missedFaces: editedFeatures,
+      matchedMm,
+      missedMm,
+      coverage,
+      faces,
     };
-    for (const f of faces) {
-      const truth = extrusion[f];
-      const gen = wallExtrusion[f];
-      out[f] = {
-        match: Math.min(truth, gen),
-        miss: Math.max(0, truth - gen),
-      };
-    }
-    return out;
-  }, [extrusion, wallExtrusion]);
+  }, [generatedParams]);
 
-  // Surface a high-level summary up to the page so the side panel can show
-  // a quick coverage analysis. Recomputed whenever the diff changes.
   useEffect(() => {
     if (!onAnalysis) return;
-    const FACE_LABELS: Record<FaceKey, string> = {
-      px: "Right (+X)",
-      nx: "Left (−X)",
-      py: "Top (+Y)",
-      ny: "Bottom (−Y)",
-      pz: "Front (+Z)",
-      nz: "Back (−Z)",
-    };
-    const faces = (Object.keys(faceDiff) as FaceKey[]).map((k) => ({
-      key: k,
-      label: FACE_LABELS[k],
-      matchMm: Math.round(faceDiff[k].match * 100),
-      missMm: Math.round(faceDiff[k].miss * 100),
-    }));
-    const matchedMm = faces.reduce((s, f) => s + f.matchMm, 0);
-    const missedMm = faces.reduce((s, f) => s + f.missMm, 0);
-    const matchedFaces = faces.filter((f) => f.matchMm > 0 && f.missMm === 0).length;
-    const missedFaces = faces.filter((f) => f.missMm > 0).length;
-    const total = matchedMm + missedMm;
-    const coverage = total === 0 ? 100 : (matchedMm / total) * 100;
-    onAnalysis({ matchedFaces, missedFaces, matchedMm, missedMm, coverage, faces });
-  }, [faceDiff, onAnalysis]);
+    onAnalysis(compareAnalysis);
+  }, [compareAnalysis, onAnalysis]);
 
 
   // Compare-mode layout: hide point cloud, slide the remaining two podiums
@@ -444,14 +762,14 @@ export function Scene({ compareMode = false, onAnalysis }: SceneProps) {
     >
       {/* Transparent canvas — page background shows through */}
 
-      <OrbitControls
+        <OrbitControls
         makeDefault
         enablePan={false}
         enableZoom
         zoomSpeed={0.6}
         minDistance={5}
         maxDistance={22}
-        enableRotate={!isDragging}
+        enableRotate={!activeDrag}
         enableDamping
         dampingFactor={0.08}
         minPolarAngle={0.15}
@@ -515,16 +833,14 @@ export function Scene({ compareMode = false, onAnalysis }: SceneProps) {
             title="Point Cloud"
             subtitle="Raw Scan"
             muted
-            topY={liveTopY}
+            topY={getSample000035TopY(SAMPLE_000035_INITIAL_PARAMS)}
           />
-          <SpinningStage paused={isDragging} rotationRef={sharedRotation}>
-            <PointCloudObject
-              extrusion={extrusion}
-              activeDrag={syncDrag}
-              onDragStart={handleDragStart("cloud")}
-              onDragMove={handleDragMove("cloud")}
-              onDragEnd={handleDragEnd("cloud")}
-              isOwningDrag={activeDrag?.owner === "cloud"}
+          <SpinningStage paused={!!activeDrag} rotationRef={sharedRotation}>
+            <StlPointCloud geometry={pointCloudGeometry} activeDrag={activeDrag} />
+            <FaceDragLayer
+              geometry={pointCloudGeometry}
+              activeDrag={activeDrag}
+              onDragChange={setActiveDrag}
             />
           </SpinningStage>
         </AnimatedStage>
@@ -539,22 +855,13 @@ export function Scene({ compareMode = false, onAnalysis }: SceneProps) {
           <CaptionLabel
             title="Generated CAD"
             subtitle="Our Result"
-            topY={liveTopY}
+            topY={getSample000035TopY(generatedParams)}
           />
-          <SpinningStage paused={isDragging} rotationRef={sharedRotation}>
-            <GroundTruthObjectVisual
-              extrusion={extrusion}
-              activeDrag={syncDrag}
+          <SpinningStage paused={!!activeDrag} rotationRef={sharedRotation}>
+            <Sample000035Solid
+              params={generatedParams}
               color={compareMode ? "#ef4444" : undefined}
               opacity={compareMode ? 0.85 : 1}
-            />
-            <FaceInteractionLayer
-              extrusion={extrusion}
-              activeDrag={syncDrag}
-              onDragStart={handleDragStart("generated")}
-              onDragMove={handleDragMove("generated")}
-              onDragEnd={handleDragEnd("generated")}
-              showLabel={activeDrag?.owner === "generated"}
             />
           </SpinningStage>
         </AnimatedStage>
@@ -568,27 +875,15 @@ export function Scene({ compareMode = false, onAnalysis }: SceneProps) {
           <Podium />
           <CaptionLabel
             title="Ground Truth"
-            subtitle="DeepCAD"
+            subtitle="Input STL"
             muted
-            topY={liveTopY}
+            topY={getSample000035TopY(SAMPLE_000035_INITIAL_PARAMS)}
           />
-          <SpinningStage paused={isDragging} rotationRef={sharedRotation}>
-            <GroundTruthObject
+          <SpinningStage paused={!!activeDrag} rotationRef={sharedRotation}>
+            <StlSolid
+              geometry={groundTruthGeometry}
               opacity={compareMode ? 0.92 : 0.92}
-              extrusion={extrusion}
-              activeDrag={syncDrag}
               color={compareMode ? "#22c55e" : undefined}
-            />
-            {/* Per-face diff overlay omitted: in compare mode the entire
-                Ground Truth body is tinted green and the Generated CAD red,
-                acting as the GitHub-style additions/deletions diff. */}
-            <FaceInteractionLayer
-              extrusion={extrusion}
-              activeDrag={syncDrag}
-              onDragStart={handleDragStart("truth")}
-              onDragMove={handleDragMove("truth")}
-              onDragEnd={handleDragEnd("truth")}
-              showLabel={activeDrag?.owner === "truth"}
             />
           </SpinningStage>
         </AnimatedStage>
@@ -622,13 +917,6 @@ export function Scene({ compareMode = false, onAnalysis }: SceneProps) {
       </Suspense>
     </Canvas>
   );
-}
-
-/** Generated CAD uses the same brick visual but rendered fully opaque. */
-function GroundTruthObjectVisual(
-  props: React.ComponentProps<typeof GroundTruthObject>,
-) {
-  return <GroundTruthObject {...props} />;
 }
 
 /**
@@ -673,63 +961,3 @@ function CaptionLabel({ title, subtitle, muted, topY = 0 }: CaptionLabelProps) {
     </Html>
   );
 }
-
-/**
- * Compare-mode visual diff: paints colored overlays on the Ground Truth's
- * faces. Green = generated CAD agrees, red = generated CAD missed (the
- * point cloud reached further than the wall did on that face).
- */
-interface DiffOverlayProps {
-  extrusion: Extrusion;
-  faceDiff: Record<FaceKey, { match: number; miss: number }>;
-}
-const DiffOverlay = forwardRef<THREE.Group, DiffOverlayProps>(function DiffOverlay(
-  { extrusion, faceDiff },
-  ref,
-) {
-  const body = useMemo(() => computeBody(BASE_SIZE, extrusion), [extrusion]);
-  const [sx, sy, sz] = body.size;
-  const [ox, oy, oz] = body.offset;
-
-  // Tiny outward offset so the overlay sits just above the brick face
-  // (avoids z-fighting with the white body).
-  const eps = 0.005;
-
-  const faces: Array<{
-    key: FaceKey;
-    size: [number, number];
-    position: [number, number, number];
-    rotation: [number, number, number];
-  }> = [
-    { key: "px", size: [sz, sy], position: [ox + sx / 2 + eps, oy, oz], rotation: [0, Math.PI / 2, 0] },
-    { key: "nx", size: [sz, sy], position: [ox - sx / 2 - eps, oy, oz], rotation: [0, -Math.PI / 2, 0] },
-    { key: "py", size: [sx, sz], position: [ox, oy + sy / 2 + eps, oz], rotation: [-Math.PI / 2, 0, 0] },
-    { key: "ny", size: [sx, sz], position: [ox, oy - sy / 2 - eps, oz], rotation: [Math.PI / 2, 0, 0] },
-    { key: "pz", size: [sx, sy], position: [ox, oy, oz + sz / 2 + eps], rotation: [0, 0, 0] },
-    { key: "nz", size: [sx, sy], position: [ox, oy, oz - sz / 2 - eps], rotation: [0, Math.PI, 0] },
-  ];
-
-  return (
-    <group ref={ref} position={[0, 0.35, 0]}>
-      {faces.map((f) => {
-        const diff = faceDiff[f.key];
-        let color: string | null = null;
-        if (diff.miss > 0.001) color = "#ef4444"; // red — generated missed this region
-        else if (diff.match > 0.001) color = "#22c55e"; // green — agreed
-        if (!color) return null;
-        return (
-          <mesh key={f.key} position={f.position} rotation={f.rotation}>
-            <planeGeometry args={f.size} />
-            <meshBasicMaterial
-              color={color}
-              transparent
-              opacity={0.55}
-              depthWrite={false}
-              side={THREE.DoubleSide}
-            />
-          </mesh>
-        );
-      })}
-    </group>
-  );
-});
