@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Landing from "./pages/Landing.tsx";
 import Workflow from "./pages/Workflow.tsx";
 import Demo from "./pages/Demo.tsx";
+import PitchDeck from "./pages/PitchDeck.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { CursorCharacter } from "@/components/cursor/CursorCharacter";
 
@@ -21,6 +22,7 @@ const App = () => (
           <Route path="/" element={<Landing />} />
           <Route path="/workflow" element={<Workflow />} />
           <Route path="/demo" element={<Demo />} />
+          <Route path="/pitchdeck" element={<PitchDeck />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
