@@ -40,8 +40,18 @@
     .geom-panel .empty { padding: 16px; font-size: 12px; color: #6b7280; text-align: center; }
     .geom-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
     .geom-row .geom-panel { margin-top: 0; }
-    #pcViewer, #stlViewer, #reconNoisyViewer { width: 100%; height: 260px; background: #fff; }
+    #pcViewer, #stlViewer, #reconNoisyViewer, #orthoStlViewer { width: 100%; height: 260px; background: #fff; }
     pre { white-space: pre-wrap; font-size: 12px; max-height: 30vh; overflow: auto; background: #111; color: #eee; border-radius: 6px; padding: 8px; }
+    .geom-panel.cv h4 { background: #ecfeff; }
+    .geom-panel.cv h4 .tag.cv { background: #cffafe; color: #155e75; }
+    .geom-panel.rebuild h4 { background: #fef9c3; }
+    .geom-panel.rebuild h4 .tag.rebuild { background: #fde68a; color: #78350f; }
+    .geom-panel.cad h4 { background: #ede9fe; }
+    .geom-panel.cad h4 .tag.cad { background: #ddd6fe; color: #4c1d95; }
+    .download-row { display: flex; gap: 8px; padding: 8px 10px; flex-wrap: wrap; }
+    .download-row a { font-size: 12px; padding: 4px 10px; background: #eef2ff; color: #3730a3;
+                       text-decoration: none; border-radius: 999px; border: 1px solid #c7d2fe; }
+    .download-row a:hover { background: #e0e7ff; }
   </style>
 </head>
 <body>
@@ -85,6 +95,28 @@
             <div class="empty">Pick a TEST sample to see the gpt-image-2 cleaned ortho view.</div>
           </div>
         </div>
+      </div>
+      <div class="geom-row">
+        <div class="geom-panel cv">
+          <h4><span>6. OpenCV segmentation overlay</span><span class="tag cv">cv</span></h4>
+          <div class="meta-line" id="overlayMeta"><strong>CV overlay:</strong> &nbsp;line/arc segmentation, holes, corner detection.</div>
+          <div class="img-wrap" id="overlayImgWrap">
+            <div class="empty">No overlay yet. Run scripts/ortho_to_cadquery.py.</div>
+          </div>
+        </div>
+        <div class="geom-panel rebuild">
+          <h4><span>7. CV-rebuilt CAD (6-view render)</span><span class="tag rebuild">rebuild</span></h4>
+          <div class="meta-line" id="rebuildMeta"><strong>Deterministic CV → CadQuery</strong>&nbsp;rebuild from sketches.json.</div>
+          <div class="img-wrap" id="rebuildImgWrap">
+            <div class="empty">No rebuild yet.</div>
+          </div>
+        </div>
+      </div>
+      <div class="geom-panel cad" style="margin-top:10px;">
+        <h4><span>8. Final parametric CAD (STL/STEP/code)</span><span class="tag cad">CAD</span></h4>
+        <div class="meta-line" id="cadMeta">Click any TEST sample to load.</div>
+        <div id="orthoStlViewer"></div>
+        <div class="download-row" id="cadDownloads"></div>
       </div>
       <pre id="code"></pre>
     </aside>
@@ -144,12 +176,14 @@
     const stlView = makeViewer('stlViewer');
     const pcView = makeViewer('pcViewer');
     const reconNoisyView = makeViewer('reconNoisyViewer');
+    const orthoStlView = makeViewer('orthoStlViewer');
 
     const plyLoader = new PLYLoader();
     const stlLoader = new STLLoader();
     let currentStl = null;
     let currentPoints = null;
     let currentReconNoisy = null;
+    let currentOrthoStl = null;
     let cohesionByIdPromise = fetch('./deepcad_pcrecon_stl/manifest.json')
       .then(r => r.ok ? r.json() : [])
       .then(rows => Object.fromEntries(rows.map(r => [r.sample_id, r.cohesion || null])))
@@ -223,6 +257,57 @@
       }, undefined, () => pcStatus.textContent = `Point cloud status: failed to load ${sampleId}.ply`);
     }
 
+    function loadOrthoArtifacts(sampleId) {
+      // Stage 6: CV segmentation overlay
+      const ovWrap = document.getElementById('overlayImgWrap');
+      const ovImg = new Image();
+      ovImg.alt = `${sampleId} CV overlay`;
+      ovImg.onload = () => { ovWrap.innerHTML = ''; ovWrap.appendChild(ovImg); };
+      ovImg.onerror = () => {
+        ovWrap.innerHTML = '<div class="empty">No overlay yet. Run scripts/ortho_to_cadquery.py.</div>';
+      };
+      ovImg.src = `./ortho_outputs/ortho_${sampleId}_overlay.png`;
+
+      // Stage 7: CV-rebuilt 6-view grid
+      const rbWrap = document.getElementById('rebuildImgWrap');
+      const rbImg = new Image();
+      rbImg.alt = `${sampleId} rebuild grid`;
+      rbImg.onload = () => { rbWrap.innerHTML = ''; rbWrap.appendChild(rbImg); };
+      rbImg.onerror = () => {
+        rbWrap.innerHTML = '<div class="empty">No rebuild yet.</div>';
+      };
+      rbImg.src = `./ortho_outputs/ortho_${sampleId}_recon_grid.png`;
+
+      // Stage 8: 3D rebuild + parametric artifact downloads
+      const cadMeta = document.getElementById('cadMeta');
+      const dl = document.getElementById('cadDownloads');
+      cadMeta.innerHTML = `Final CAD outputs for <strong>${sampleId}</strong> &middot;
+        STEP for Fusion/SolidWorks/Onshape import,
+        <code>generated.py</code> + <code>sketches.json</code> for parametric edits.`;
+      dl.innerHTML = `
+        <a href="./ortho_outputs/ortho_${sampleId}.step" download>STEP (parametric)</a>
+        <a href="./ortho_outputs/ortho_${sampleId}.stl" download>STL (mesh)</a>
+        <a href="./ortho_outputs/ortho_${sampleId}_generated.py" target="_blank">generated.py</a>
+        <a href="./ortho_outputs/ortho_${sampleId}_sketches.json" target="_blank">sketches.json</a>
+      `;
+      // Load STL into the viewer
+      if (currentOrthoStl) orthoStlView.scene.remove(currentOrthoStl);
+      stlLoader.load(`./ortho_outputs/ortho_${sampleId}.stl`, (geometry) => {
+        geometry.computeBoundingBox();
+        const c = new THREE.Vector3();
+        geometry.boundingBox.getCenter(c);
+        geometry.translate(-c.x, -c.y, -c.z);
+        const solid = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+          color: 0xddd6fe, roughness: 0.7, metalness: 0.05, flatShading: true,
+        }));
+        const wire = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+          color: 0x4c1d95, wireframe: true, transparent: true, opacity: 0.6,
+        }));
+        const g = new THREE.Group(); g.add(solid); g.add(wire);
+        orthoStlView.scene.add(g); currentOrthoStl = g;
+      });
+    }
+
     function loadReconNoisy(sampleId) {
       reconNoisyStatus.textContent = `Noisy reconstruction status: loading ${sampleId}_recon_noisy.stl ...`;
       if (currentReconNoisy) reconNoisyView.scene.remove(currentReconNoisy);
@@ -271,6 +356,7 @@
             loadPointCloud(s.sample_id);
             loadReconNoisy(s.sample_id);
             loadGeometryView(s.sample_id);
+            loadOrthoArtifacts(s.sample_id);
           };
           grid.appendChild(card);
           if (idx === 0) card.click();
