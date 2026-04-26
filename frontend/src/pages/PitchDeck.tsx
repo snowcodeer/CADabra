@@ -5,8 +5,8 @@ import { DeckBackdrop } from "./pitchdeck/deckStyles";
 import { Pitch03Demo, Pitch06Research, Pitch12Cta } from "./pitchdeck/PitchSlideContent";
 import { Hook01Bam, Hook02Bottle, Hook03Cadabra } from "./pitchdeck/HookSlideContent";
 
-/** Hooks (3) + demo, research, team. */
-const SLIDES = [Hook01Bam, Hook02Bottle, Hook03Cadabra, Pitch03Demo, Pitch06Research, Pitch12Cta] as const;
+/** Hooks (3) + research, demo, team. */
+const SLIDES = [Hook01Bam, Hook02Bottle, Hook03Cadabra, Pitch06Research, Pitch03Demo, Pitch12Cta] as const;
 
 const TOTAL = SLIDES.length;
 
@@ -88,7 +88,7 @@ const PitchDeck = () => {
         <div className="site-gutter-x mx-auto flex max-w-6xl items-center justify-start py-3 sm:py-4 2xl:max-w-7xl">
           <Link
             to="/"
-            className="pointer-events-auto inline-flex min-h-10 min-w-10 items-center justify-center gap-1.5 text-xs text-muted-foreground -ml-1 rounded-lg transition-colors hover:text-foreground sm:min-h-0 sm:min-w-0 sm:justify-start sm:px-0"
+            className="pointer-events-auto inline-flex min-h-10 min-w-10 items-center justify-center gap-1.5 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur-sm transition hover:border-border hover:bg-background/95 hover:text-foreground sm:min-h-0 sm:min-w-0 sm:justify-start"
             aria-label="Back to home"
           >
             <span className="inline-flex items-center gap-1">
