@@ -3,7 +3,9 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
+  Play,
   Upload,
+  X,
 } from "lucide-react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -1733,6 +1735,12 @@ const Workflow = () => {
   const [stage, setStage] = useState<Stage>(0);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [stageElapsed, setStageElapsed] = useState(0);
+  const [demoOpen, setDemoOpen] = useState(false);
+
+  const startPipeline = () => {
+    setDemoOpen(false);
+    setStage(1);
+  };
 
   // Per-stage durations (ms). Stage 4 hosts the unfold→fold→spin→fade
   // showcase, so it gets the most time.
@@ -1894,6 +1902,14 @@ const Workflow = () => {
                   </div>
                   <div className="pointer-events-none absolute inset-x-0 bottom-8 z-10 flex flex-col items-center gap-3">
                     <button
+                      onClick={() => setDemoOpen(true)}
+                      className="pointer-events-auto group inline-flex w-full max-w-xs items-center justify-center gap-2.5 rounded-full bg-white px-6 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-black shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-xl sm:max-w-md sm:px-8 sm:py-4 sm:text-base md:w-auto md:max-w-none md:px-10 md:py-5"
+                    >
+                      <Play className="h-4 w-4" strokeWidth={1.8} />
+                      DEMO
+                    </button>
+                    {/* Upload button hidden for now — re-enable when real upload lands.
+                    <button
                       onClick={() => setStage(1)}
                       className="pointer-events-auto group inline-flex w-full max-w-xs items-center justify-center gap-2.5 rounded-full bg-white px-6 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-black shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-xl sm:max-w-md sm:px-8 sm:py-4 sm:text-base md:w-auto md:max-w-none md:px-10 md:py-5"
                     >
@@ -1903,8 +1919,68 @@ const Workflow = () => {
                     <p className="text-xs font-light text-muted-foreground">
                       (.ply file of point cloud.)
                     </p>
+                    */}
                   </div>
                 </div>
+
+                {/* Demo overlay — 4 placeholder cards. Click any card to
+                    kick off the same pipeline that the upload button used to. */}
+                {demoOpen && (
+                  <div
+                    className="absolute inset-0 z-30 flex items-center justify-center bg-background/70 backdrop-blur-md animate-fade-in"
+                    onClick={() => setDemoOpen(false)}
+                  >
+                    <div
+                      className="relative w-full max-w-3xl px-6"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setDemoOpen(false)}
+                        aria-label="Close demos"
+                        className="absolute right-6 top-0 inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background/80 text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        <X className="h-4 w-4" strokeWidth={1.8} />
+                      </button>
+                      <h2 className="mb-1 text-center text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                        Demo previews
+                      </h2>
+                      <p className="mb-6 text-center text-xs font-light text-muted-foreground">
+                        Pick a sample to run the full pipeline.
+                      </p>
+                      <div className="grid grid-cols-2 gap-4 sm:gap-5">
+                        {[0, 1, 2, 3].map((i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={startPipeline}
+                            className="group relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-border bg-surface/60 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-foreground/40 hover:shadow-lg"
+                          >
+                            <div
+                              aria-hidden
+                              className="absolute inset-0 opacity-[0.5]"
+                              style={{
+                                backgroundImage:
+                                  "linear-gradient(hsl(220 14% 84% / 0.7) 1px, transparent 1px), linear-gradient(90deg, hsl(220 14% 84% / 0.7) 1px, transparent 1px)",
+                                backgroundSize: "24px 24px",
+                                maskImage:
+                                  "radial-gradient(ellipse at 50% 50%, black 0%, transparent 80%)",
+                                WebkitMaskImage:
+                                  "radial-gradient(ellipse at 50% 50%, black 0%, transparent 80%)",
+                              }}
+                            />
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground transition-colors group-hover:text-foreground">
+                              <Play className="h-5 w-5" strokeWidth={1.6} />
+                              <span className="font-mono text-[10px] uppercase tracking-[0.3em]">
+                                Sample {String(i + 1).padStart(2, "0")}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

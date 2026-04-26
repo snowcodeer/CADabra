@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Zoo">
+  <text
+    x="60"
+    y="30"
+    text-anchor="middle"
+    font-family="'Outfit','Inter','Helvetica Neue',Arial,sans-serif"
+    font-size="30"
+    font-weight="800"
+    letter-spacing="-1"
+    fill="#0f172a"
+  >Zoo</text>
+</svg>

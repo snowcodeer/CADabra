@@ -128,8 +128,8 @@ const HOOK01_COMPETITORS: {
   },
   {
     label: "Zoo (zoo.dev)",
-    src: "/pitch-deck/logos/zoo-favicon.ico",
-    invertImg: true,
+    src: "/pitch-deck/logos/zoo-wordmark.svg",
+    wordmark: true,
     place: { bottom: "4.5%", left: "8%", transform: "rotate(2deg)" },
   },
   {
@@ -454,7 +454,7 @@ export function Hook03Cadabra() {
         </header>
 
         <div className="mt-8 grid min-h-0 flex-1 grid-cols-1 items-center gap-4 lg:mt-10 lg:grid-cols-11">
-          <div className="hook-s3-before flex justify-center lg:col-span-5">
+          <div className="hook-s3-before flex justify-center lg:col-span-4">
             <div className={`w-full max-w-md ${hookPanel}`}>
               <p className="mb-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
                 Before
@@ -466,8 +466,8 @@ export function Hook03Cadabra() {
             </div>
           </div>
 
-          <div className="hook-s3-arrow flex min-w-0 flex-col items-center justify-center gap-1 py-2 lg:col-span-1">
-            <p className="inline-flex flex-wrap items-baseline justify-center gap-x-0 text-center font-outfit text-2xl font-bold leading-none tracking-[-0.02em] text-foreground sm:text-3xl md:text-4xl">
+          <div className="hook-s3-arrow flex flex-col items-center justify-center gap-1 py-2 lg:col-span-3">
+            <p className="inline-flex flex-nowrap items-baseline justify-center gap-x-0 whitespace-nowrap text-center font-outfit text-2xl font-bold leading-none tracking-[-0.02em] text-foreground sm:text-3xl md:text-4xl">
               <CadabraCadLockup
                 cadLetterClassName="font-outfit text-2xl font-bold leading-none tracking-[-0.02em] text-foreground sm:text-3xl md:text-4xl"
               />
@@ -486,7 +486,7 @@ export function Hook03Cadabra() {
             </svg>
           </div>
 
-          <div className="hook-s3-after flex justify-center lg:col-span-5">
+          <div className="hook-s3-after flex justify-center lg:col-span-4">
             <div className={`w-full max-w-md ${hookPanel}`}>
               <p className="mb-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-highlight">After</p>
               <div className={hook3VizFrame}>

@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import { DeckBackdrop } from "./pitchdeck/deckStyles";
-import { Pitch03Demo, Pitch06Research, Pitch12Cta } from "./pitchdeck/PitchSlideContent";
+import { Pitch03Demo, Pitch04Tam, Pitch06Research, Pitch12Cta } from "./pitchdeck/PitchSlideContent";
 import { Hook01Bam, Hook02Bottle, Hook03Cadabra } from "./pitchdeck/HookSlideContent";
 
-/** Hooks (3) + research, demo, team. */
-const SLIDES = [Hook01Bam, Hook02Bottle, Hook03Cadabra, Pitch06Research, Pitch03Demo, Pitch12Cta] as const;
+/** Hooks (3) + research, demo, TAM, team. */
+const SLIDES = [Hook01Bam, Hook02Bottle, Hook03Cadabra, Pitch06Research, Pitch03Demo, Pitch04Tam, Pitch12Cta] as const;
 
 const TOTAL = SLIDES.length;
 
