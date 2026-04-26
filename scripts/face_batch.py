@@ -2,32 +2,41 @@
 """Batch-run ``face_roundtrip`` over several STLs and produce a single
 triptych summary so you can scan input vs output for many shapes at once.
 
+Inputs may be individual ``.stl`` files OR directories — each directory
+expands to every ``.stl`` it contains (sorted, top level only).
+
 For each input STL ``<stem>.stl`` the script:
 
     1. Runs ``scripts/face_roundtrip.py <stem>.stl`` (unless --no-run).
-    2. Locates the three artifacts that matter for visual comparison:
-         - ORIGINAL    → ``backend/outputs/deepcad_selected_grids/<stem>_grid.png``
-                         (or rendered on-the-fly if missing)
-         - DIAGRAM     → ``backend/outputs/face_<stem>_diagram.png``
-         - RECONSTRUCT → ``backend/outputs/face_<stem>_recon_grid.png``
+    2. Locates the two artifacts that matter for visual comparison:
+         - INPUT  → ``backend/outputs/deepcad_selected_grids/<stem>_grid.png``
+                    (6-view render of the input STL; rendered on-the-fly
+                    if no pre-baked grid exists)
+         - OUTPUT → ``backend/outputs/face_<stem>_recon_grid.png``
+                    (6-view render of the rebuilt STL)
     3. Stacks them horizontally into one row per shape.
 
 All rows are then stacked vertically into a single summary PNG with
 labels and headers, and (with ``--open``) opened in Preview.
 
 Use this when you want to look at "input STL vs what we generated"
-across multiple parts in one glance — without having to flip between
-six different files per shape.
+across multiple parts in one glance.
 
 Usage:
-    python scripts/face_batch.py path/to/a.stl path/to/b.stl [...] [options]
+    # Run on every STL in a folder:
+    python scripts/face_batch.py backend/outputs/deepcad_selected_stl --open
 
-    # Skip re-running the pipeline (just rebuild the summary from
-    # whatever artifacts already exist on disk):
-    python scripts/face_batch.py *.stl --no-run
+    # First 4 only (cheap smoke test, won't burn all the API credit):
+    python scripts/face_batch.py backend/outputs/deepcad_selected_stl --limit 4 --open
 
-    # Run + open the summary in Preview:
-    python scripts/face_batch.py *.stl --open
+    # Specific STLs:
+    python scripts/face_batch.py path/to/a.stl path/to/b.stl --open
+
+    # Mix files and directories:
+    python scripts/face_batch.py backend/outputs/deepcad_selected_stl extra.stl --open
+
+    # Skip running (rebuild summary from existing artifacts on disk):
+    python scripts/face_batch.py backend/outputs/deepcad_selected_stl --no-run --open
 
     # Custom output path:
     python scripts/face_batch.py *.stl --output backend/outputs/my_batch.png
@@ -52,9 +61,9 @@ OUTPUT_DIR = REPO_ROOT / "backend" / "outputs"
 DEEPCAD_GRIDS_DIR = OUTPUT_DIR / "deepcad_selected_grids"
 
 # Canvas geometry. Each panel inside a row is rescaled to PANEL_WIDTH
-# while preserving aspect ratio, so the three panels always line up
+# while preserving aspect ratio, so the two panels always line up
 # regardless of the source PNG dimensions.
-PANEL_WIDTH = 1600
+PANEL_WIDTH = 1800
 ROW_HEADER_H = 48
 TITLE_H = 80
 PADDING = 12
@@ -78,16 +87,11 @@ class ShapeArtifacts:
     stl_path: Path
     stem: str
     original_grid: Path  # 6-view of the input STL
-    face_diagram: Path  # face_<stem>_diagram.png
-    recon_grid: Path  # face_<stem>_recon_grid.png
+    recon_grid: Path  # face_<stem>_recon_grid.png — 6-view of the rebuilt STL
 
     @property
     def all_present(self) -> bool:
-        return (
-            self.original_grid.is_file()
-            and self.face_diagram.is_file()
-            and self.recon_grid.is_file()
-        )
+        return self.original_grid.is_file() and self.recon_grid.is_file()
 
 
 def _resolve_original_grid(stem: str, stl_path: Path) -> Path:
@@ -115,7 +119,6 @@ def _artifacts_for(stl_path: Path) -> ShapeArtifacts:
         stl_path=stl_path,
         stem=stem,
         original_grid=_resolve_original_grid(stem, stl_path),
-        face_diagram=OUTPUT_DIR / f"face_{stem}_diagram.png",
         recon_grid=OUTPUT_DIR / f"face_{stem}_recon_grid.png",
     )
 
@@ -160,8 +163,7 @@ def _scaled(img: Image.Image, width: int) -> Image.Image:
 
 def _panel(img: Image.Image, label: str) -> Image.Image:
     """Wrap a panel image with a small label bar above it so each
-    column is self-describing (ORIGINAL / FACE DIAGRAM / RECONSTRUCTION).
-    """
+    column is self-describing (INPUT / OUTPUT)."""
     label_h = 32
     out = Image.new("RGB", (img.width, img.height + label_h), PANEL_LABEL_BG)
     draw = ImageDraw.Draw(out)
@@ -172,14 +174,19 @@ def _panel(img: Image.Image, label: str) -> Image.Image:
 
 
 def _build_row(art: ShapeArtifacts) -> Image.Image:
-    """Compose one row: [original | face diagram | reconstruction]."""
+    """Compose one row: [input STL render | output STL render].
+
+    Both panels are 6-view grids rendered by the same renderer, so the
+    comparison is genuinely apples-to-apples."""
     panels = [
-        _panel(_scaled(Image.open(art.original_grid).convert("RGB"), PANEL_WIDTH),
-               f"INPUT — {art.stem}.stl  (6-view render of the original mesh)"),
-        _panel(_scaled(Image.open(art.face_diagram).convert("RGB"), PANEL_WIDTH),
-               f"FACE DIAGRAM — face_{art.stem}_diagram.png  (mesh as engineering drawing)"),
-        _panel(_scaled(Image.open(art.recon_grid).convert("RGB"), PANEL_WIDTH),
-               f"OUTPUT — face_{art.stem}.stl  (6-view render of what Claude rebuilt)"),
+        _panel(
+            _scaled(Image.open(art.original_grid).convert("RGB"), PANEL_WIDTH),
+            f"INPUT STL — {art.stem}.stl",
+        ),
+        _panel(
+            _scaled(Image.open(art.recon_grid).convert("RGB"), PANEL_WIDTH),
+            f"OUTPUT STL — face_{art.stem}.stl  (rebuilt by face-geometry pipeline)",
+        ),
     ]
     h = max(p.height for p in panels)
     w = sum(p.width for p in panels) + GUTTER * (len(panels) - 1)
@@ -199,7 +206,7 @@ def _build_summary(arts: list[ShapeArtifacts], out_path: Path) -> None:
         if not art.all_present:
             missing = [
                 p.name
-                for p in (art.original_grid, art.face_diagram, art.recon_grid)
+                for p in (art.original_grid, art.recon_grid)
                 if not p.is_file()
             ]
             print(f"  [skip] {art.stem}: missing {', '.join(missing)}")
@@ -231,7 +238,7 @@ def _build_summary(arts: list[ShapeArtifacts], out_path: Path) -> None:
     )
     draw.text(
         (PADDING, 50),
-        "Each row: input STL render  →  face diagram (Claude's input)  →  rebuilt STL render",
+        "Each row: 6-view render of the input STL  vs.  6-view render of the rebuilt STL  (same renderer on both sides)",
         fill="#444", font=sub_font,
     )
 
@@ -255,7 +262,12 @@ def _build_summary(arts: list[ShapeArtifacts], out_path: Path) -> None:
 
     canvas.save(out_path)
     print()
-    print(f"wrote {out_path.relative_to(REPO_ROOT)} ({canvas.width}x{canvas.height})")
+    out_abs = out_path.resolve()
+    try:
+        shown = out_abs.relative_to(REPO_ROOT)
+    except ValueError:
+        shown = out_abs
+    print(f"wrote {shown} ({canvas.width}x{canvas.height})")
 
 
 # ---------------------------------------------------------------------------
@@ -264,12 +276,23 @@ def _build_summary(arts: list[ShapeArtifacts], out_path: Path) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Run face_roundtrip on multiple STLs and stack original-vs-output "
-            "triptychs into one summary PNG."
+            "Run face_roundtrip on multiple STLs and stack input-vs-output "
+            "6-view comparisons (one row per shape) into one summary PNG."
         ),
     )
     parser.add_argument(
-        "stls", nargs="+", help="One or more input STL files.",
+        "stls",
+        nargs="+",
+        help=(
+            "One or more input STL files, OR directories — each directory "
+            "expands to every .stl inside it (top level, sorted)."
+        ),
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Cap the number of STLs processed (handy for cheap smoke tests).",
     )
     parser.add_argument(
         "--no-run",
@@ -291,12 +314,38 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv[1:])
 
     stl_paths: list[Path] = []
+    seen: set[Path] = set()
     for raw in args.stls:
         p = Path(raw).resolve()
-        if not p.is_file():
-            print(f"[error] not a file: {p}", file=sys.stderr)
+        if p.is_dir():
+            children = sorted(p.glob("*.stl"))
+            if not children:
+                print(f"[warn] no .stl files in directory: {p}", file=sys.stderr)
+            for child in children:
+                if child not in seen:
+                    stl_paths.append(child)
+                    seen.add(child)
+        elif p.is_file():
+            if p.suffix.lower() != ".stl":
+                print(f"[warn] not an .stl file (skipping): {p}", file=sys.stderr)
+                continue
+            if p not in seen:
+                stl_paths.append(p)
+                seen.add(p)
+        else:
+            print(f"[error] path does not exist: {p}", file=sys.stderr)
             return 2
-        stl_paths.append(p)
+
+    if not stl_paths:
+        print("[error] no STL files to process.", file=sys.stderr)
+        return 2
+
+    if args.limit is not None and args.limit > 0:
+        stl_paths = stl_paths[: args.limit]
+
+    print(f"[batch] processing {len(stl_paths)} STL(s):")
+    for p in stl_paths:
+        print(f"   - {p}")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
