@@ -11,6 +11,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { Scene, type CompareAnalysis } from "@/components/cad/Scene";
+import { CadabraCadLockup } from "@/components/CadabraWordmark";
 
 /**
  * CADabra — single-screen showcase: Point Cloud → Parametric CAD.
@@ -37,16 +38,11 @@ const Index = () => {
       <header className="site-gutter-x pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between py-4 sm:py-5 md:py-6">
         {/* Wordmark — slides in from the left */}
         <div
-          className="pointer-events-auto opacity-0 animate-[demo-slide-in-left_700ms_var(--ease-out-soft)_120ms_forwards]"
+          className="pointer-events-auto inline-flex items-baseline gap-0 opacity-0 animate-[demo-slide-in-left_700ms_var(--ease-out-soft)_120ms_forwards]"
         >
-          <span
-            className="font-wordmark text-[length:clamp(1.75rem,calc(1.1rem+1.2vw),2.4rem)] font-bold leading-none tracking-[-0.02em]
-                       bg-gradient-to-br from-foreground via-foreground to-foreground/60
-                       bg-clip-text text-transparent
-                       [text-shadow:0_1px_0_rgba(0,0,0,0.04)]"
-          >
-            CAD
-          </span>
+          <CadabraCadLockup
+            cadLetterClassName="font-wordmark text-[length:clamp(1.75rem,calc(1.1rem+1.2vw),2.4rem)] font-bold leading-none tracking-[-0.02em] bg-gradient-to-br from-foreground via-foreground to-foreground/60 bg-clip-text text-transparent [text-shadow:0_1px_0_rgba(0,0,0,0.04)]"
+          />
           <span
             className="font-wordmark text-[length:clamp(1.75rem,calc(1.1rem+1.2vw),2.4rem)] font-light italic leading-none tracking-[-0.02em] text-foreground/80"
           >

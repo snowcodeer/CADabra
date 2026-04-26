@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useState } from "react";
 import { Play } from "lucide-react";
 import { deckSlideTitleClass, Eyebrow, GradText } from "./deckStyles";
 
@@ -25,7 +25,7 @@ export function Pitch03Demo() {
   );
 }
 
-/* -- Research: papers stacked + “slap” in (--tx, --ty, --tr on each card) -- */
+/* -- Research: first-page thumbnails in a row, each links out -- */
 const RESEARCH_PAPERS: { href: string; image: string; label: string }[] = [
   { href: "https://arxiv.org/abs/2412.14042", image: "/research1.png", label: "CAD-Recode" },
   { href: "https://arxiv.org/abs/2402.17678", image: "/research2.png", label: "CAD-SIGNet" },
@@ -40,57 +40,20 @@ const RESEARCH_PAPERS: { href: string; image: string; label: string }[] = [
   { href: "https://neurips.cc/virtual/2025/loc/san-diego/poster/118942", image: "/research7.png", label: "MiCADangelo (NeurIPS 2025)" },
 ];
 
-const RESEARCH_STACK: { x: number; y: number; r: number }[] = [
-  { x: -28, y: 40, r: -5.5 },
-  { x: 20, y: 28, r: 4.2 },
-  { x: -14, y: 24, r: -3.8 },
-  { x: 26, y: 36, r: 3.5 },
-  { x: -20, y: 22, r: -4.5 },
-  { x: 16, y: 30, r: 2.8 },
-  { x: -8, y: 20, r: -2.2 },
+/** Skewed row: light vertical wobble, small rotations, enough gap to avoid overlap. */
+const RESEARCH_SCATTER: { y: number; r: number }[] = [
+  { y: 8, r: -5.5 },
+  { y: 0, r: 3.2 },
+  { y: 10, r: -2.8 },
+  { y: -4, r: 4.5 },
+  { y: 6, r: -3.4 },
+  { y: -2, r: 2.6 },
+  { y: 7, r: -4.1 },
 ];
 
 export function Pitch06Research() {
-  const [visibleCount, setVisibleCount] = useState(0);
-  const [hasStarted, setHasStarted] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = rootRef.current;
-    if (!el || hasStarted) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (entry?.isIntersecting) {
-          setHasStarted(true);
-          setVisibleCount(1);
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.55 },
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [hasStarted]);
-
-  useEffect(() => {
-    if (!hasStarted) return;
-    const id = window.setInterval(() => {
-      setVisibleCount((n) => {
-        if (n >= 7) {
-          window.clearInterval(id);
-          return 7;
-        }
-        return n + 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [hasStarted]);
-
   return (
-    <div ref={rootRef} className="mx-auto w-full max-w-5xl px-1 py-2">
+    <div className="mx-auto w-full max-w-6xl px-1 py-2">
       <Eyebrow>Research</Eyebrow>
       <h2 className={`mt-2 ${deckSlideTitleClass}`}>
         Still an <GradText>unsolved</GradText> problem.
@@ -98,39 +61,65 @@ export function Pitch06Research() {
       <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
         Academic progress on CAD from clouds and text, not yet production reverse engineering for real scans.
       </p>
-      <div className="relative mx-auto mt-6 min-h-[min(56vh,560px)] w-full max-w-4xl sm:min-h-[min(58vh,600px)]">
-        {RESEARCH_PAPERS.map((p, i) => {
-          if (i >= visibleCount) return null;
-          const s = RESEARCH_STACK[i] ?? { x: 0, y: 0, r: 0 };
-          /** Final pose from first paint; avoids % translate reflow when image height resolves. */
-          const placeStyle: CSSProperties = {
-            zIndex: i + 1,
-            transform: `translate(calc(-50% + ${s.x}px), calc(-50% + ${s.y}px)) rotate(${s.r}deg)`,
-          };
-          return (
-            <a
-              key={p.href}
-              href={p.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={p.label}
-              className="research-slap-in group absolute left-1/2 top-1/2 w-[min(400px,92vw)] max-w-[24rem] origin-center overflow-hidden rounded-lg border border-foreground/10 bg-white p-0.5 shadow-[0_14px_40px_rgba(15,23,42,0.12),0_2px_8px_rgba(15,23,42,0.06)] transition-shadow duration-200 ease-out [will-change:opacity] hover:z-[60] hover:shadow-[0_20px_44px_rgba(15,23,42,0.16)] sm:w-[min(420px,90vw)] sm:max-w-[26rem]"
-              style={placeStyle}
-            >
-              <div className="max-h-[min(52vh,520px)] w-full max-w-full origin-center overflow-hidden rounded-[6px] transition-transform duration-200 ease-out group-hover:scale-[1.04]">
-                <img
-                  src={p.image}
-                  alt={`First page: ${p.label}`}
-                  className="h-auto w-full object-contain object-top"
-                  loading={i < 3 ? "eager" : "lazy"}
-                  draggable={false}
-                />
-              </div>
-            </a>
-          );
-        })}
+      <div className="mt-4 w-full min-w-0">
+        <div className="flex min-h-[min(40vh,420px)] w-full items-end justify-center overflow-x-auto overflow-y-visible px-1 py-3 pb-6 sm:min-h-[min(44vh,480px)] sm:px-2">
+          <div className="flex w-max max-w-full flex-nowrap items-end justify-center gap-2.5 sm:mx-auto sm:gap-3.5 md:gap-4">
+            {RESEARCH_PAPERS.map((p, i) => {
+              const s = RESEARCH_SCATTER[i] ?? { y: 0, r: 0 };
+              return (
+                <a
+                  key={p.href}
+                  href={p.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={p.label}
+                  className="research-slap-in group relative z-[1] flex w-[min(4.5rem,19vw)] shrink-0 flex-col overflow-visible rounded-lg border border-foreground/10 bg-white p-0.5 shadow-[0_8px_24px_rgba(15,23,42,0.08),0_1px_4px_rgba(15,23,42,0.04)] transition duration-200 ease-out hover:z-20 hover:shadow-[0_14px_32px_rgba(15,23,42,0.14)] sm:w-24 md:w-28"
+                  style={{
+                    transform: `translateY(${s.y}px) rotate(${s.r}deg)`,
+                    animationDelay: `${0.04 + i * 0.06}s`,
+                  }}
+                >
+                  <div className="relative aspect-[3/4] w-full overflow-hidden rounded-[6px] bg-white">
+                    <img
+                      src={p.image}
+                      alt={`First page: ${p.label}`}
+                      className="h-full w-full object-contain object-top transition-transform duration-200 ease-out group-hover:scale-[1.04]"
+                      loading={i < 3 ? "eager" : "lazy"}
+                      draggable={false}
+                    />
+                  </div>
+                  <span className="mt-1.5 line-clamp-2 px-0.5 text-center font-mono text-[0.5rem] leading-tight text-muted-foreground/90 sm:text-[0.55rem]">
+                    {p.label}
+                  </span>
+                </a>
+              );
+            })}
+          </div>
+        </div>
       </div>
-      <p className="mt-2 text-center font-mono text-[10px] text-muted-foreground/80 sm:hidden">Tap a page to open</p>
+      <p className="mt-2 text-center font-mono text-[10px] text-muted-foreground/80 sm:hidden">Tap a first page to open</p>
+      <details className="mt-4 border-t border-border/20 pt-2.5 text-center">
+        <summary className="cursor-pointer list-none font-mono text-[10px] font-medium tracking-[0.22em] text-muted-foreground/45 transition-colors hover:text-muted-foreground/70 [&::-webkit-details-marker]:hidden">
+          All 7 papers
+        </summary>
+        <ul
+          className="mx-auto mt-2.5 max-w-lg columns-1 gap-x-4 gap-y-0.5 text-left text-[10px] text-muted-foreground/75 sm:columns-2"
+          role="list"
+        >
+          {RESEARCH_PAPERS.map((p) => (
+            <li key={p.href} className="mb-1 break-inside-avoid">
+              <a
+                href={p.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-muted-foreground/80 underline decoration-border/50 underline-offset-2 transition hover:text-foreground hover:decoration-foreground/40"
+              >
+                {p.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </details>
     </div>
   );
 }
