@@ -19,9 +19,10 @@ import { cursorCharacter } from "./cursorCharacterState";
  * Pointer-events are disabled so all clicks fall through to the page.
  */
 
-// Fine-tuned so the on-screen pointer sits on the wrench pin center.
-const PIVOT_X = 0.632;
-const PIVOT_Y = 0.312;
+// Hotspot = center of the “Nut” layer in the Lottie comp (1237×696): ~[838.5, 239]
+// → normalized to match the system cursor to that pin in the rendered silhouette.
+const PIVOT_X = 838.5 / 1237;
+const PIVOT_Y = 239 / 696;
 const BUFFER_W = 240;
 const BUFFER_H = (240 * 696) / 1237;
 const DRAW_SIZE = 110; // CSS pixels — visible silhouette footprint
