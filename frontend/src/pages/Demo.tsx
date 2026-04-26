@@ -181,7 +181,12 @@ const Demo = () => {
       </header>
 
       <div className="absolute inset-0 opacity-0 animate-[demo-stage-in_900ms_var(--ease-out-soft)_80ms_forwards]">
-        <Scene compareMode={compareMode} onAnalysis={handleAnalysis} />
+        <Scene
+          compareMode={compareMode}
+          onAnalysis={handleAnalysis}
+          generatedParams={params}
+          onGeneratedParamsChange={setParams}
+        />
       </div>
 
       {!compareMode && (
@@ -211,7 +216,7 @@ const Demo = () => {
         <div className="pointer-events-auto flex w-full max-w-[640px] items-center gap-5 rounded-2xl border border-border bg-background/85 px-5 py-3.5 shadow-xl backdrop-blur-md">
           <div className="flex flex-1 items-center gap-3">
             <div className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
-              Coverage
+              Volume match
             </div>
             <div className="flex flex-1 items-center gap-3">
               <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/10">
@@ -231,14 +236,14 @@ const Demo = () => {
               <CheckCircle2 className="h-3.5 w-3.5 text-[#22c55e]" strokeWidth={2.2} />
               <span className="text-sm font-semibold tabular-nums text-foreground">
                 {analysis ? analysis.matchedMm : 0}
-                <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">mm</span>
+                <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">cm^3</span>
               </span>
             </div>
             <div className="flex items-center gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 text-[#ef4444]" strokeWidth={2.2} />
               <span className="text-sm font-semibold tabular-nums text-foreground">
                 {analysis ? analysis.missedMm : 0}
-                <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">mm</span>
+                <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">cm^3</span>
               </span>
             </div>
           </div>

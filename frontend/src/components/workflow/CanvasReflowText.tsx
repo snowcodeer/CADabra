@@ -47,7 +47,7 @@ export function CanvasReflowText({
     const host = hostRef.current;
     const canvas = canvasRef.current;
     if (!host || !canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return;
 
     let dpr = window.devicePixelRatio || 1;

@@ -1,6 +1,6 @@
-import { Suspense, useMemo, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { Canvas, useFrame, useLoader } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 
 /**
@@ -53,27 +53,67 @@ function buildPointPositions(
   return out;
 }
 
+function buildFallbackCloud(count: number): Float32Array {
+  const out = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const phi = Math.acos(1 - (2 * (i + 0.5)) / count);
+    const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+    const r = 0.72 + Math.sin(theta * 3.1) * 0.06;
+    out[i * 3 + 0] = Math.cos(theta) * Math.sin(phi) * r;
+    out[i * 3 + 1] = Math.sin(theta) * Math.sin(phi) * r;
+    out[i * 3 + 2] = Math.cos(phi) * r;
+  }
+  return out;
+}
+
 function PointCloudFromStl({ src }: { src: string }) {
-  const loaded = useLoader(STLLoader, src);
+  const [loaded, setLoaded] = useState<THREE.BufferGeometry | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(null);
+    setFailed(false);
+    const loader = new STLLoader();
+    loader.load(
+      src,
+      (geometry) => {
+        if (!cancelled) setLoaded(geometry);
+      },
+      undefined,
+      (err) => {
+        console.warn(`Preview STL failed for ${src}`, err);
+        if (!cancelled) setFailed(true);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+
   const positions = useMemo(() => {
+    if (!loaded) return failed ? buildFallbackCloud(POINT_COUNT) : null;
     const normed = normaliseGeometry(loaded);
     return buildPointPositions(normed, POINT_COUNT);
-  }, [loaded]);
+  }, [loaded, failed]);
 
   const geometry = useMemo(() => {
+    if (!positions) return null;
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     return g;
   }, [positions]);
 
+  useEffect(() => () => geometry?.dispose(), [geometry]);
+
   const material = useMemo(
     () =>
       new THREE.PointsMaterial({
-        color: 0x111827,
-        size: 0.018,
+        color: 0x60a5fa,
+        size: 0.02,
         sizeAttenuation: true,
         transparent: true,
-        opacity: 0.85,
+        opacity: 0.92,
       }),
     [],
   );
@@ -83,6 +123,7 @@ function PointCloudFromStl({ src }: { src: string }) {
     if (ref.current) ref.current.rotation.y += dt * 0.4;
   });
 
+  if (!geometry) return null;
   return <points ref={ref} geometry={geometry} material={material} />;
 }
 

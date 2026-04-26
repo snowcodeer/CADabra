@@ -141,7 +141,7 @@ function buildBossGeometry(params: Sample000035Params) {
   return geom;
 }
 
-function buildSample000035Geometries(params: Sample000035Params) {
+export function buildSample000035Geometries(params: Sample000035Params) {
   return {
     base: buildBaseSolidGeometry(params),
     boss: buildBossGeometry(params),
@@ -521,6 +521,27 @@ function EditorObject({
   );
 }
 
+export function Sample000035EditableSolid({
+  params,
+  onChange,
+  onDraggingChange,
+  interactive = true,
+}: {
+  params: Sample000035Params;
+  onChange: (next: Sample000035Params) => void;
+  onDraggingChange?: (dragging: boolean) => void;
+  interactive?: boolean;
+}) {
+  return (
+    <EditorObject
+      params={params}
+      onChange={onChange}
+      onDraggingChange={onDraggingChange}
+      interactive={interactive}
+    />
+  );
+}
+
 function Stage({
   params,
   onChange,
@@ -530,12 +551,6 @@ function Stage({
   onChange: (next: Sample000035Params) => void;
   interactive?: boolean;
 }) {
-  const spinRef = useRef<THREE.Group>(null);
-  const [dragging, setDragging] = useState(false);
-  useFrame((_, delta) => {
-    if (!spinRef.current || dragging) return;
-    spinRef.current.rotation.y += delta * 0.18;
-  });
   return (
     <>
       <ambientLight intensity={0.7} />
@@ -555,14 +570,15 @@ function Stage({
       />
       <directionalLight position={[-4, 2.5, -2]} intensity={0.24} />
       <Environment preset="studio" environmentIntensity={0.5} />
-      <group ref={spinRef}>
+      <group>
         <Podium />
-        <EditorObject
-          params={params}
-          onChange={onChange}
-          onDraggingChange={setDragging}
-          interactive={interactive}
-        />
+        <group scale={1.5}>
+          <EditorObject
+            params={params}
+            onChange={onChange}
+            interactive={interactive}
+          />
+        </group>
       </group>
       <mesh position={[0, -0.549, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[18, 18]} />
@@ -581,15 +597,14 @@ function Stage({
       <OrbitControls
         makeDefault
         enablePan={false}
+        enableRotate={false}
         enableZoom
         zoomSpeed={0.6}
-        minDistance={4.5}
+        minDistance={3.8}
         maxDistance={14}
         enableDamping
         dampingFactor={0.08}
-        minPolarAngle={0.15}
-        maxPolarAngle={Math.PI / 2 - 0.05}
-        target={[0, 0.35, 0]}
+        target={[0, 0.5, 0]}
       />
     </>
   );
@@ -608,7 +623,7 @@ export function Sample000035EditorScene({
     <Canvas
       shadows="soft"
       dpr={[1, 2]}
-      camera={{ position: [0, 1.8, 6.8], fov: 28 }}
+      camera={{ position: [0, 1.9, 5.8], fov: 28 }}
       gl={{ antialias: true, alpha: true }}
       style={{ touchAction: "none" }}
     >

@@ -19,13 +19,13 @@ import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { Edges, Environment } from "@react-three/drei";
-import { Scene } from "@/components/cad/Scene";
 import { Podium } from "@/components/cad/Podium";
 import { CanvasReflowText } from "@/components/workflow/CanvasReflowText";
 import { NoisyCloudPreview } from "@/components/workflow/NoisyCloudPreview";
 import { CadabraCadLockup } from "@/components/CadabraWordmark";
 import { ScanToCadTitle } from "@/components/workflow/ScanToCadTitle";
 import { LegoPodiumScene } from "@/components/workflow/LegoPodiumScene";
+import { demoAssets } from "@/lib/demoAssets";
 
 
 
@@ -1329,10 +1329,10 @@ function UnfoldFoldScene({
    *  12.8 → 14.2   REVEAL
    *  14.2 → ~16.0 AMBIENT
    * ------------------------------------------------------------------------ */
-  const FADE_IN_END   = 2.9;
-  const HOLD_NET_END  = 3.2;
-  const ZOOM_OUT_END  = 4.2; // zoom-out: slightly longer + gentler
-  const HOLD_WIDE_END = 4.7;
+  const FADE_IN_END   = 2.4;
+  const HOLD_NET_END  = 2.8;
+  const ZOOM_OUT_END  = 4.0; // zoom-out: slightly longer + gentler
+  const HOLD_WIDE_END = 4.5;
   const FOLD_END      = 7.2; // 2.5s fold window
   const HOLD_CUBE_END = 7.7;
   const SPIN_END      = 12.2; // ~4.5s 360 — slower, eased with easeInOutSine
@@ -1343,8 +1343,12 @@ function UnfoldFoldScene({
   // same on-screen size as the stage-3 sphere (zero-jump handoff).
   // Stage-3 camera at z=4.5, stage-4 camera at z=8.6 → ratio 8.6/4.5.
   // ZOOM_OUT lower = pull back more on the net / cube (more in frame).
-  const ZOOM_IN = 8.6 / 4.5; // ≈ 1.911
-  const ZOOM_OUT = 0.76;
+  // Real sample meshes read larger than the old sphere fallback, so start
+  // closer to the stage-3 size instead of aggressively compensating for the
+  // farther camera. This keeps the cube/net feeling like an overlay that
+  // fades over the mesh rather than a pop toward the camera.
+  const ZOOM_IN = 1.34;
+  const ZOOM_OUT = 0.8;
 
   // Order in which all 6 panels fade in. FRONT goes first (index 0) so it
   // appears in lockstep with the other panels. The bridge mesh (3D shaded
@@ -2071,30 +2075,30 @@ const DEMO_SAMPLES: DemoSample[] = [
   {
     sample_id: "deepcadimg_000035",
     display_name: "Flanged Boss",
-    cloudStl: "/demos/deepcadimg_000035_recon_noisy.stl",
-    cleanStl: "/demos/deepcadimg_000035.stl",
-    orthoGrid: "/demos/ortho_deepcadimg_000035_recon_grid.png",
+    cloudStl: demoAssets.deepcadimg_000035.cloudStl,
+    cleanStl: demoAssets.deepcadimg_000035.groundTruthStl,
+    orthoGrid: demoAssets.deepcadimg_000035.orthoGrid,
   },
   {
     sample_id: "deepcadimg_002354",
     display_name: "Stepped Plate",
-    cloudStl: "/demos/deepcadimg_002354_recon_noisy.stl",
-    cleanStl: "/demos/deepcadimg_002354.stl",
-    orthoGrid: "/demos/ortho_deepcadimg_002354_recon_grid.png",
+    cloudStl: demoAssets.deepcadimg_002354.cloudStl,
+    cleanStl: demoAssets.deepcadimg_002354.groundTruthStl,
+    orthoGrid: demoAssets.deepcadimg_002354.orthoGrid,
   },
   {
     sample_id: "deepcadimg_117514",
     display_name: "Slotted Bracket",
-    cloudStl: "/demos/deepcadimg_117514_recon_noisy.stl",
-    cleanStl: "/demos/deepcadimg_117514.stl",
-    orthoGrid: "/demos/ortho_deepcadimg_117514_recon_grid.png",
+    cloudStl: demoAssets.deepcadimg_117514.cloudStl,
+    cleanStl: demoAssets.deepcadimg_117514.groundTruthStl,
+    orthoGrid: demoAssets.deepcadimg_117514.orthoGrid,
   },
   {
     sample_id: "deepcadimg_128105",
     display_name: "Drilled Block",
-    cloudStl: "/demos/deepcadimg_128105_recon_noisy.stl",
-    cleanStl: "/demos/deepcadimg_128105.stl",
-    orthoGrid: "/demos/ortho_deepcadimg_128105_recon_grid.png",
+    cloudStl: demoAssets.deepcadimg_128105.cloudStl,
+    cleanStl: demoAssets.deepcadimg_128105.groundTruthStl,
+    orthoGrid: demoAssets.deepcadimg_128105.orthoGrid,
   },
 ];
 
@@ -2266,6 +2270,11 @@ const Workflow = () => {
     }, 80);
     return () => window.clearInterval(id);
   }, [stage]);
+
+  useEffect(() => {
+    if (stage !== 5) return;
+    navigate("/demo");
+  }, [navigate, stage]);
 
   // Compute overall pipeline progress (0–100) across all stages.
   const overallProgress =
@@ -2523,14 +2532,6 @@ const Workflow = () => {
                 </Suspense>
               </Canvas>
             )}
-
-            {/* Stage 5 — hand off directly into the 3-podium comparison scene */}
-            {stage === 5 && (
-              <div className="absolute inset-0 animate-fade-in">
-                <Scene />
-              </div>
-            )}
-
 
             {/* Bottom-left axis gizmo — visible across every 3D stage,
                 rotates in lockstep with the hero shape. */}
