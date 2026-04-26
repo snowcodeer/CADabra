@@ -74,6 +74,61 @@ def _polyline_call(vertices: list[tuple[float, float]]) -> str:
     return f".polyline([{pts}]).close()"
 
 
+def _arc_midpoint(
+    start: tuple[float, float], end: tuple[float, float],
+    centre: tuple[float, float], radius: float, ccw: bool | None,
+) -> tuple[float, float]:
+    """Pick a midpoint on the arc through start and end with the given
+    centre and radius. CadQuery's threePointArc takes a midpoint, not a
+    centre; we sample the arc at its midway angle."""
+    import math
+
+    a0 = math.atan2(start[1] - centre[1], start[0] - centre[0])
+    a1 = math.atan2(end[1] - centre[1], end[0] - centre[0])
+    # Pick sweep direction. If ccw is set use it; otherwise pick the
+    # shorter arc.
+    if ccw is True:
+        if a1 < a0:
+            a1 += 2 * math.pi
+    elif ccw is False:
+        if a1 > a0:
+            a1 -= 2 * math.pi
+    else:
+        # Shorter arc by default.
+        diff = a1 - a0
+        while diff > math.pi:
+            diff -= 2 * math.pi
+        while diff < -math.pi:
+            diff += 2 * math.pi
+        a1 = a0 + diff
+    am = (a0 + a1) / 2.0
+    return (centre[0] + radius * math.cos(am),
+            centre[1] + radius * math.sin(am))
+
+
+def _arc_line_call(segments: list) -> str:
+    """Emit '.moveTo(...).threePointArc(...).lineTo(...).close()' for a
+    closed loop of arc and line segments. Vertices are workplane-local mm.
+    """
+    if not segments:
+        return ".rect(1, 1)"  # safety; validator should prevent this
+    first = segments[0]
+    parts: list[str] = [f".moveTo({_fmt(first.start[0])}, {_fmt(first.start[1])})"]
+    for seg in segments:
+        if seg.kind == "line":
+            parts.append(f".lineTo({_fmt(seg.end[0])}, {_fmt(seg.end[1])})")
+        else:
+            mid = _arc_midpoint(
+                seg.start, seg.end, seg.arc_centre, seg.arc_radius_mm, seg.arc_ccw,
+            )
+            parts.append(
+                f".threePointArc(({_fmt(mid[0])}, {_fmt(mid[1])}), "
+                f"({_fmt(seg.end[0])}, {_fmt(seg.end[1])}))"
+            )
+    parts.append(".close()")
+    return "".join(parts)
+
+
 def _profile_2d_call(profile: Profile2D) -> str:
     """Return the CadQuery sketch call for a 2D profile.
 
@@ -98,6 +153,9 @@ def _profile_2d_call(profile: Profile2D) -> str:
     if profile.shape == "polyline":
         # validator guarantees >= 3 vertices in mm
         return _polyline_call(list(profile.vertices))  # type: ignore[arg-type]
+    if profile.shape == "arc_line":
+        # validator guarantees >= 2 arc_line_segments
+        return _arc_line_call(list(profile.arc_line_segments))  # type: ignore[arg-type]
     # legacy enums: prefer the vertex list when the LLM provided one
     if profile.vertices and len(profile.vertices) >= 3:
         return _polyline_call(list(profile.vertices))

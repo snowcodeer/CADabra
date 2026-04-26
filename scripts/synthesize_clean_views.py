@@ -38,7 +38,7 @@ from PIL import Image
 
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+    load_dotenv(Path(__file__).resolve().parent.parent / "backend" / ".env")
 except ImportError:
     pass
 
@@ -49,10 +49,10 @@ REPO = Path(__file__).resolve().parent.parent
 OUT_DIR = REPO / "backend" / "outputs" / "deepcad_pc_recon_stl"
 GEOMETRY_VIEWS_DIR = OUT_DIR / "geometry_views"
 CLEAN_VIEWS_SOURCE_DIR = OUT_DIR / "clean_view_inputs"
-FRONTEND_GEOMETRY_DIR = REPO / "frontend" / "deepcad_geometry_views"
+FRONTEND_GEOMETRY_DIR = REPO / "frontend-preview" / "deepcad_geometry_views"
 MANIFEST_PATH = OUT_DIR / "manifest.json"
 
-# Mirrors frontend/deepcad-selector.html TUNER_TEST_IDS. Kept in sync by hand
+# Mirrors frontend-preview/deepcad-selector.html TUNER_TEST_IDS. Kept in sync by hand
 # so we never accidentally synthesise images for the full 35-sample gallery
 # (each call costs and we only want clean views for the highlighted demos).
 DEFAULT_TEST_IDS = [
@@ -101,9 +101,20 @@ def _depth_to_rgb_array(values: np.ndarray, mask: np.ndarray, vmin: float, vmax:
     return img
 
 
-def _raycast_mesh_view(scene, view_dir, right, up, center, size, panel) -> np.ndarray:
-    u = np.linspace(-size / 2, size / 2, panel)
-    v = np.linspace(size / 2, -size / 2, panel)
+def _raycast_mesh_view(scene, view_dir, right, up, center, size, panel_w, panel_h=None) -> np.ndarray:
+    """Cast rays into an axis-aligned ortho view box with ISOTROPIC pixels.
+
+    ``size`` is the side length of the view box along the U (right) axis.
+    The V (up) axis is scaled so each pixel covers the same world distance
+    in both directions; otherwise shapes get stretched by the panel
+    aspect ratio (a real bug we hit before this was made anisotropic-safe).
+    """
+    if panel_h is None:
+        panel_h = panel_w
+    pixel_size = size / panel_w
+    v_extent = pixel_size * panel_h / 2.0
+    u = np.linspace(-size / 2, size / 2, panel_w)
+    v = np.linspace(v_extent, -v_extent, panel_h)
     uu, vv = np.meshgrid(u, v, indexing="xy")
     plane_origin = center + (-view_dir) * size
     origins = (
@@ -114,7 +125,7 @@ def _raycast_mesh_view(scene, view_dir, right, up, center, size, panel) -> np.nd
     dirs = np.tile(view_dir, (origins.shape[0], 1))
     rays = np.concatenate([origins, dirs], axis=1).astype(np.float32)
     ans = scene.cast_rays(o3d.core.Tensor(rays))
-    return ans["t_hit"].numpy().reshape(panel, panel)
+    return ans["t_hit"].numpy().reshape(panel_h, panel_w)
 
 
 def render_clean_input_grid(stl_path: Path, out_path: Path) -> dict:
@@ -148,19 +159,24 @@ def render_clean_input_grid(stl_path: Path, out_path: Path) -> dict:
         cx = col * CELL_W
         cy = row * CELL_H
 
-        hit_t = _raycast_mesh_view(scene, view_dir, right, up, center, size, half_w)
-        # Resample vertically to fill the 512px-tall cell so the cell is a
-        # square depth-then-silhouette pair scaled to (256+256) x 512.
-        hit_t_resized = np.repeat(hit_t, CELL_H // half_w, axis=0)
-        mesh_mask = np.isfinite(hit_t_resized)
+        # Native 256w x 512h raycast with isotropic pixels — every pixel
+        # covers the same world distance in U and V, so circles render
+        # as circles instead of getting vertically stretched 2:1 by an
+        # axis-0 row-repeat. Older versions of this code raycast 256x256
+        # and then np.repeat'd; that was the source of the "oval" bug.
+        hit_t = _raycast_mesh_view(
+            scene, view_dir, right, up, center, size,
+            panel_w=half_w, panel_h=CELL_H,
+        )
+        mesh_mask = np.isfinite(hit_t)
 
         if mesh_mask.any():
-            vmin = float(hit_t_resized[mesh_mask].min())
-            vmax = float(hit_t_resized[mesh_mask].max())
+            vmin = float(hit_t[mesh_mask].min())
+            vmax = float(hit_t[mesh_mask].max())
         else:
             vmin = 0.0
             vmax = 1.0
-        depth_img = _depth_to_rgb_array(hit_t_resized, mesh_mask, vmin, vmax)
+        depth_img = _depth_to_rgb_array(hit_t, mesh_mask, vmin, vmax)
 
         sil = np.full((CELL_H, half_w, 3), 255, dtype=np.uint8)  # white background
         sil[mesh_mask] = (40, 40, 48)  # near-black ink for the part body
@@ -389,7 +405,7 @@ def sync_to_frontend() -> None:
     for png in GEOMETRY_VIEWS_DIR.glob("*_geometry_clean.png"):
         shutil.copy2(png, FRONTEND_GEOMETRY_DIR / png.name)
     if MANIFEST_PATH.exists():
-        FRONTEND_MANIFEST = REPO / "frontend" / "deepcad_pcrecon_stl" / "manifest.json"
+        FRONTEND_MANIFEST = REPO / "frontend-preview" / "deepcad_pcrecon_stl" / "manifest.json"
         if FRONTEND_MANIFEST.parent.exists():
             shutil.copy2(MANIFEST_PATH, FRONTEND_MANIFEST)
 
