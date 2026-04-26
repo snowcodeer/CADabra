@@ -81,14 +81,14 @@ const PitchDeck = () => {
   }, [activeSlide, scrollToSlide]);
 
   return (
-    <main className="stage-bg relative h-dvh w-full overflow-hidden text-foreground">
+    <main className="stage-bg relative h-screen-dvh w-full min-h-0 overflow-hidden text-foreground">
       <DeckBackdrop />
 
       <header className="pointer-events-none absolute inset-x-0 top-0 z-20">
-        <div className="mx-auto flex max-w-6xl items-center justify-start px-5 py-4 sm:px-6">
+        <div className="site-gutter-x mx-auto flex max-w-6xl items-center justify-start py-3 sm:py-4 2xl:max-w-7xl">
           <Link
             to="/"
-            className="pointer-events-auto text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="pointer-events-auto inline-flex min-h-10 min-w-10 items-center justify-center gap-1.5 text-xs text-muted-foreground -ml-1 rounded-lg transition-colors hover:text-foreground sm:min-h-0 sm:min-w-0 sm:justify-start sm:px-0"
             aria-label="Back to home"
           >
             <span className="inline-flex items-center gap-1">
@@ -101,7 +101,7 @@ const PitchDeck = () => {
 
       <div
         ref={containerRef}
-        className="h-dvh snap-y snap-mandatory overflow-y-auto scroll-smooth"
+        className="h-screen-dvh min-h-0 snap-y snap-mandatory overflow-y-auto scroll-smooth"
       >
         {SLIDES.map((Slide, idx) => {
           const isHook = idx < 3;
@@ -113,8 +113,8 @@ const PitchDeck = () => {
               }}
               className={
                 isHook
-                  ? "flex min-h-dvh snap-start flex-col p-0"
-                  : "flex min-h-dvh snap-start flex-col px-4 py-10 sm:px-6 sm:py-12"
+                  ? "flex min-h-screen-dvh snap-start flex-col p-0"
+                  : "site-gutter-x flex min-h-screen-dvh snap-start flex-col py-8 sm:py-10 sm:px-0 md:py-12"
               }
             >
               <div
@@ -131,7 +131,7 @@ const PitchDeck = () => {
         })}
       </div>
 
-      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-30 flex items-end justify-center px-4 sm:px-6">
+      <div className="site-gutter-x pointer-events-none fixed inset-x-0 bottom-0 z-30 flex items-end justify-center pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:bottom-1 sm:pb-4">
         <div className="pointer-events-auto inline-flex items-center gap-0.5 rounded-full border border-border/60 bg-background/80 px-1 py-0.5 backdrop-blur-sm sm:px-1.5">
           <button
             type="button"
