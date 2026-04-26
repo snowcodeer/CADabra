@@ -129,6 +129,7 @@ def _add_panel(
     color: str,
     *,
     normalise: bool,
+    smooth_shading: bool,
 ) -> None:
     plotter.subplot(row, col)
     plotter.set_background(BG_COLOR)
@@ -143,10 +144,13 @@ def _add_panel(
         original_mm = max(bx[1] - bx[0], bx[3] - bx[2], bx[5] - bx[4])
         size_note = f"  [longest edge: {original_mm:.1f} mm  (raw scale)]"
 
+    # Default smooth_shading=False: per-triangle flat shading matches CAD
+    # facet structure and avoids fake radial banding on coarse tessellated
+    # cylinders / hex faces. Pass --smooth for interpolated normals.
     plotter.add_mesh(
         mesh,
         color=color,
-        smooth_shading=True,
+        smooth_shading=smooth_shading,
         ambient=0.15,
         diffuse=0.85,
         specular=0.0,
@@ -163,13 +167,14 @@ def view_pair(
     *,
     show: bool = True,
     normalise: bool = True,
+    smooth_shading: bool = False,
 ) -> None:
     plotter = pv.Plotter(shape=(1, 2), window_size=(2000, 900), off_screen=not show)
 
     _add_panel(plotter, 0, 0, input_stl,  f"INPUT  —  {input_stl.name}",
-               INPUT_COLOR,  normalise=normalise)
+               INPUT_COLOR,  normalise=normalise, smooth_shading=smooth_shading)
     _add_panel(plotter, 0, 1, output_stl, f"OUTPUT —  {output_stl.name}",
-               OUTPUT_COLOR, normalise=normalise)
+               OUTPUT_COLOR, normalise=normalise, smooth_shading=smooth_shading)
 
     plotter.link_views()
     plotter.reset_camera()
@@ -209,6 +214,15 @@ def main(argv: list[str]) -> int:
             "scale mismatches; default is to normalise so both panes line up."
         ),
     )
+    parser.add_argument(
+        "--smooth",
+        action="store_true",
+        help=(
+            "Use smooth (interpolated) vertex normals — can look nicer on "
+            "organic shapes but often shows fake radial bands on faceted "
+            "CAD meshes. Default is flat per-triangle shading."
+        ),
+    )
     ns = parser.parse_args(argv[1:])
 
     if len(ns.args) == 1:
@@ -241,8 +255,15 @@ def main(argv: list[str]) -> int:
         print("(raw scale — input and output may differ in physical size)")
     else:
         print(f"(both meshes normalised to {DISPLAY_NORMALISE_MM:.0f} mm longest edge for fair shape comparison)")
+    if ns.smooth:
+        print("(smooth shading — try without --smooth if you see odd radial patterns)")
 
-    view_pair(input_stl, output_stl, show=not ns.no_show, normalise=not ns.raw_scale)
+    view_pair(
+        input_stl, output_stl,
+        show=not ns.no_show,
+        normalise=not ns.raw_scale,
+        smooth_shading=ns.smooth,
+    )
     return 0
 
 
