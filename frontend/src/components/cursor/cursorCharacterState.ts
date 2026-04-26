@@ -39,8 +39,9 @@ export const cursorCharacter: CursorCharacterState = {
   drawSize: 0,
   flipScale: 1,
   tilt: 0,
-  pivotX: 0.12,
-  pivotY: 0.53,
+  // Keep defaults aligned with CursorCharacter's runtime pivot.
+  pivotX: 0.632,
+  pivotY: 0.312,
   redrawProfile: null,
   profileCanvas: null,
   profileDrawSize: 0,

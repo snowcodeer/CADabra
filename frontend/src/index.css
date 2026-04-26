@@ -41,9 +41,9 @@
 
     --radius: 0.875rem;
 
-    /* Highlights for 3D interactions */
-    --highlight: 210 100% 56%;
-    --highlight-soft: 210 100% 96%;
+    /* Highlights for 3D interactions (darker blue accent) */
+    --highlight: 215 75% 38%;
+    --highlight-soft: 215 40% 94%;
 
     /* Shadows — soft, layered */
     --shadow-sm: 0 1px 2px hsl(220 14% 12% / 0.04);
@@ -250,4 +250,340 @@
   0%   { opacity: 0; transform: scale(0.985); filter: blur(4px); }
   60%  { filter: blur(0); }
   100% { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+
+/* Pitch / Hook deck */
+.deck-bg {
+  background: radial-gradient(ellipse 80% 60% at 50% 40%, #121826 0%, #0a0d12 100%);
+  color: #f8fafc;
+}
+.deck-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.35;
+  pointer-events: none;
+}
+.glass-hud {
+  @apply rounded-2xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur-md;
+  box-shadow: 0 0 0 1px hsl(220 20% 50% / 0.12);
+}
+.technical-border {
+  @apply relative rounded-2xl border border-white/20;
+  background: hsl(220 20% 8% / 0.6);
+}
+.technical-border::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  border-left: 2px solid hsl(217 91% 60% / 0.9);
+  border-top: 2px solid hsl(217 91% 60% / 0.9);
+  border-radius: 4px 0 0 0;
+}
+.technical-border::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid hsl(217 91% 60% / 0.9);
+  border-bottom: 2px solid hsl(217 91% 60% / 0.9);
+  border-radius: 0 0 4px 0;
+}
+.card-accent-left {
+  border-left: 3px solid hsl(217 91% 60%);
+  @apply rounded-xl border border-white/10 bg-white/[0.03] p-4;
+}
+.text-gradient-blue {
+  background: linear-gradient(135deg, #3b6ec9 0%, #1e3a8a 50%, #3b6ec9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@keyframes deck-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+.deck-pulse-dot {
+  animation: deck-pulse 2s ease-in-out infinite;
+}
+.deck-top-accent {
+  background: linear-gradient(90deg, transparent, hsl(215 75% 32% / 0.5), transparent);
+  height: 1px;
+  opacity: 0.5;
+}
+@keyframes chip-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.85) rotate(var(--r, 0deg));
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(var(--r, 0deg));
+  }
+}
+.bam-chip {
+  animation: chip-in 0.5s var(--ease-out-soft) both;
+}
+.deck-grid-48 {
+  background-image: linear-gradient(hsl(220 20% 20% / 0.4) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(220 20% 20% / 0.4) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+@keyframes deck-dim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.deck-dim-layer {
+  animation: deck-dim-in 0.7s ease 0.85s both;
+}
+
+/* Hook deck: light slides (BAM / Bottle / CADabra), matches stage + pitch slides */
+.hook-grid-48 {
+  background-image: linear-gradient(hsl(220 9% 46% / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(220 9% 46% / 0.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+@keyframes hook-chip-spring {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--r2)) scale(0.6);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(var(--r)) scale(1);
+  }
+}
+.hook-chip {
+  animation: hook-chip-spring 0.65s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes hook-dim-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.hook-dim-radial {
+  animation: hook-dim-fade 0.4s ease forwards;
+  animation-delay: 1.05s;
+  animation-fill-mode: both;
+  opacity: 0;
+}
+@keyframes hook-headline-spring {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.hook-headline-group {
+  animation: hook-headline-spring 0.65s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation-delay: 1.2s;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+@keyframes hook-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.hook-stagger-0 {
+  animation: hook-fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+.hook-stagger-1 {
+  animation: hook-fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: 0.1s;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+@keyframes hook-bottle-scale {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.hook-bottle-in {
+  animation: hook-bottle-scale 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: 0.2s;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hook-bottle-in {
+    animation: none;
+    opacity: 1;
+  }
+}
+@keyframes hook-card-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes hook-card-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.hook-card-left {
+  animation: hook-card-from-left 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: 0.35s;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+.hook-card-right {
+  animation: hook-card-from-right 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: 0.5s;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+.hook-footer-stuck {
+  animation: hook-fade-up 0.55s ease forwards;
+  animation-delay: 0.85s;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+.hook-s3-header-eyebrow {
+  animation: hook-fade-up 0.5s ease forwards;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+.hook-s3-header-title {
+  animation: hook-fade-up 0.5s ease forwards;
+  animation-delay: 0.1s;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+@keyframes hook-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.hook-s3-before {
+  animation: hook-from-left 0.55s ease forwards;
+  animation-delay: 0.25s;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+@keyframes hook-arrow-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.hook-s3-arrow {
+  animation: hook-arrow-pop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation-delay: 0.45s;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+@keyframes hook-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.hook-s3-after {
+  animation: hook-from-right 0.55s ease forwards;
+  animation-delay: 0.55s;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+@keyframes hook-from-right-far {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.hook-s3-param {
+  animation: hook-from-right-far 0.5s ease forwards;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+.hook-s3-param-0 { animation-delay: 0.7s; }
+.hook-s3-param-1 { animation-delay: 0.8s; }
+.hook-s3-param-2 { animation-delay: 0.9s; }
+.hook-s3-param-3 { animation-delay: 1s; }
+.hook-s3-footer {
+  animation: hook-fade-up 0.5s ease forwards;
+  animation-delay: 1.15s;
+  opacity: 0;
+  animation-fill-mode: both;
+}
+
+/* Research cards: final transform lives in inline style; animation is opacity only (no position jump on image load) */
+@keyframes research-slap {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+.research-slap-in {
+  animation: research-slap 0.4s ease-out forwards;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .research-slap-in {
+    animation: none;
+    opacity: 1;
+  }
 }

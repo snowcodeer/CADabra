@@ -86,8 +86,8 @@ function sampleCylinderSurface(
 
 function PointCloudBrick() {
   const ref = useRef<THREE.Group>(null);
-  useFrame((_, dt) => {
-    if (ref.current) ref.current.rotation.y += dt * 0.45;
+  useFrame((state) => {
+    if (ref.current) ref.current.rotation.y = state.clock.getElapsedTime() * 0.45;
   });
 
   const geometry = useMemo(() => {
@@ -121,6 +121,9 @@ function PointCloudBrick() {
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(all, 3));
+    // Keep the cloud pinned to its local pivot so it rotates in place
+    // instead of appearing to drift laterally.
+    geo.center();
     return geo;
   }, []);
 
@@ -149,7 +152,7 @@ export function LegoPodiumScene() {
     <Canvas
       shadows
       dpr={[1, 2]}
-      camera={{ position: [0, 1.3, 6.7], fov: 28 }}
+      camera={{ position: [0, 1.3, 10.2], fov: 30 }}
       gl={{ antialias: true, alpha: true }}
     >
       <ambientLight intensity={0.65} />

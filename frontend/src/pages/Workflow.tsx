@@ -1736,7 +1736,7 @@ const Workflow = () => {
   // Per-stage durations (ms). Stage 4 hosts the unfold→fold→spin→fade
   // showcase, so it gets the most time.
   const STAGE_DURATIONS: Record<Exclude<Stage, 0 | 5>, number> = {
-    1: 1700,
+    1: 2500,
     2: 2500,
     3: 4300,
     4: 13100,
@@ -1809,10 +1809,10 @@ const Workflow = () => {
       {/* Faint blueprint grid backdrop */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.25]"
+        className="pointer-events-none absolute inset-0 opacity-[0.42]"
         style={{
           backgroundImage:
-            "linear-gradient(hsl(220 14% 88% / 0.6) 1px, transparent 1px), linear-gradient(90deg, hsl(220 14% 88% / 0.6) 1px, transparent 1px)",
+            "linear-gradient(hsl(220 14% 84% / 0.82) 1px, transparent 1px), linear-gradient(90deg, hsl(220 14% 84% / 0.82) 1px, transparent 1px)",
           backgroundSize: "64px 64px",
           maskImage:
             "radial-gradient(ellipse at 50% 40%, black 0%, transparent 75%)",
@@ -1883,22 +1883,23 @@ const Workflow = () => {
                     {/* RIGHT — Brick + upload, nudged slightly higher
                         and inset toward the center. */}
                     <div className="flex h-full min-h-0 flex-col items-center pr-6">
-                      <div className="relative min-h-0 flex-1 w-full">
+                      <div className="relative mx-auto min-h-0 flex-1 w-full max-w-[520px] -translate-y-3">
                         <LegoPodiumScene />
                       </div>
-                      <div className="-mt-10 flex flex-col items-center gap-3">
-                        <button
-                          onClick={() => setStage(1)}
-                          className="group inline-flex items-center gap-3 rounded-full bg-foreground px-12 py-6 text-lg font-semibold uppercase tracking-[0.18em] text-background shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-xl"
-                        >
-                          <Upload className="h-5 w-5" strokeWidth={1.8} />
-                          UPLOAD POINT CLOUD
-                        </button>
-                        <p className="text-xs font-light text-muted-foreground">
-                          (.ply file of point cloud.)
-                        </p>
-                      </div>
+                      <div className="-mt-10 flex w-full flex-col items-center gap-3" />
                     </div>
+                  </div>
+                  <div className="pointer-events-none absolute inset-x-0 bottom-8 z-10 flex flex-col items-center gap-3">
+                    <button
+                      onClick={() => setStage(1)}
+                      className="pointer-events-auto group inline-flex items-center gap-2.5 rounded-full bg-white px-10 py-5 text-base font-semibold uppercase tracking-[0.18em] text-black shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-xl"
+                    >
+                      <Upload className="h-4 w-4" strokeWidth={1.8} />
+                      UPLOAD POINT CLOUD
+                    </button>
+                    <p className="text-xs font-light text-muted-foreground">
+                      (.ply file of point cloud.)
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1907,6 +1908,11 @@ const Workflow = () => {
             {/* Stage 1 — plain backdrop, hairline progress at the bottom */}
             {stage === 1 && (
               <div className="absolute inset-0 animate-fade-in">
+                <div className="absolute inset-x-0 top-[46%] z-10 -translate-y-1/2 px-6 text-center">
+                  <p className="text-sm font-medium tracking-[0.03em] text-foreground/80">
+                    abraCADabring...
+                  </p>
+                </div>
                 {/* Bottom-anchored hairline progress */}
                 <div className="absolute inset-x-0 bottom-16 z-10 mx-auto flex max-w-sm flex-col items-center gap-3 px-6">
                   <div className="font-mono text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
