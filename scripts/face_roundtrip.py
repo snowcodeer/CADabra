@@ -413,6 +413,16 @@ def main(argv: list[str]) -> int:
         help="After the run, open the face comparison PNG and launch "
              "view3d for both the original and reconstructed STL.",
     )
+    parser.add_argument(
+        "--clean-view",
+        dest="clean_view",
+        default=None,
+        help="Optional path to a 6-view orthographic blueprint PNG produced "
+             "by scripts/synthesize_clean_views.py. When supplied it is "
+             "recoloured (RdYlBu_r depth) and attached as a second image to "
+             "the Claude call so the model can trust it over the noisy face "
+             "diagram for topology questions.",
+    )
     args = parser.parse_args(argv[1:])
 
     stl_path = Path(args.stl).resolve()
@@ -463,10 +473,31 @@ def main(argv: list[str]) -> int:
 
     # ------- Step 3: Claude — construction-sequence reasoning ---------
     _print_header("Step 3 — Claude (face-geometry construction reasoning)")
+
+    clean_view_path: Path | None = None
+    if args.clean_view:
+        from backend.ai_infra.clean_view_recolor import recolorize_clean_view
+        src = Path(args.clean_view).resolve()
+        if not src.exists():
+            print(f"--clean-view PNG not found: {src}", file=sys.stderr)
+            return 2
+        recoloured = OUTPUT_DIR / f"face_{paths.part_id}_clean_view_recoloured.png"
+        recolorize_clean_view(src, recoloured)
+        clean_view_path = recoloured
+        print(
+            f"Attaching recoloured clean blueprint to Claude: "
+            f"{recoloured.relative_to(REPO_ROOT)}"
+        )
+
     try:
         render_path = _resolve_input_grid(paths.part_id, stl_path)
         print(f"[opencv] using input render: {render_path.relative_to(REPO_ROOT)}")
-        part = call_claude_faces(paths.diagram, geometry, render_path)
+        part = call_claude_faces(
+            paths.diagram,
+            geometry,
+            render_path=render_path,
+            clean_view_path=clean_view_path,
+        )
         _print_sketch_summary(part)
         if geometry.missed_features:
             print(f"\n[opencv] {len(geometry.missed_features)} missed feature(s):")

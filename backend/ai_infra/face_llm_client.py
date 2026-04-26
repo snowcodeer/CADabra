@@ -30,7 +30,6 @@ from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from backend.ai_infra.face_extractor import ExtractedGeometry, summarise_geometry
-from backend.ai_infra.opencv_validator import validate_with_opencv
 from backend.ai_infra.sketch_models import SketchPartDescription
 
 
@@ -150,41 +149,6 @@ Rule 5: SIDE FACES (±X, ±Y) that match (base_extrude_height ×
 Rule 6: NEVER MERGE separate features. Two holes with the same
         radius at different XY positions = two separate
         SketchOperation entries.
-
-MISSED FEATURES (OpenCV validation findings)
-============================================
-After geometric face extraction, the input render is scanned with
-OpenCV to catch features the extraction may have missed. Any findings
-appear under ``missed_features`` in the ExtractedGeometry JSON. They
-are SUPPLEMENTARY — face_extractor's planar_faces and
-cylindrical_faces are always the source of truth.
-
-Treat each missed feature like this:
-
-  * feature_type == "hole" or "pocket"
-      Add a new SketchOperation with operation == "cut".
-        - approximate_shape "circle" → profile shape "circle",
-          diameter_mm = approximate_size_mm[0].
-        - approximate_shape "rectangle" → profile shape "rectangle",
-          width_mm = approximate_size_mm[0],
-          depth_mm = approximate_size_mm[1].
-        - depth_type == "through" → distance_mm = full part thickness
-          along the cut axis (use bounding_box_mm).
-        - depth_type == "blind" / "unknown" → distance_mm ≈ a few mm
-          (3-5 mm) unless you have evidence otherwise.
-      Place it on the same working face as the rest of the cuts.
-
-  * feature_type == "step"
-      Only act if your construction sequence does NOT already produce
-      a face at that height. Otherwise ignore.
-
-  * feature_type == "small_feature"
-      Include only if it is also clearly visible in the face diagram.
-      Otherwise ignore — it's likely a rendering artefact.
-
-When you include ANY missed feature, set the description's
-``confidence`` to "medium" (not "high"). When in doubt, prefer
-extractor data and ignore the OpenCV finding.
 
 POSITION CONVENTION
 ===================
@@ -388,9 +352,6 @@ def _encode_image(path: str | Path) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
 def _format_missed_features_summary(geometry: ExtractedGeometry) -> str:
     """Plain-text bullet list appended to the user message so Claude
     sees the OpenCV findings even without re-parsing the JSON."""
@@ -408,22 +369,248 @@ def _format_missed_features_summary(geometry: ExtractedGeometry) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+# When the caller supplies a cleaned blueprint we replace the entire
+# system prompt: the noisy face-diagram description is dropped because it
+# would just compete with the cleaner signal. The exact-number rules from
+# the original prompt are preserved verbatim because they govern how
+# values flow from the geometry JSON into the output.
+SYSTEM_PROMPT_BLUEPRINT = f"""\
+You are a CAD construction-planning assistant.
+
+You receive TWO inputs:
+
+(1) A 1536 x 1024 px DENOISED ORTHOGRAPHIC BLUEPRINT of the part,
+    produced from a noisy 3D scan and then cleaned up by an image
+    model (gpt-image-2) and recoloured. Layout:
+
+        Row 1 (left to right):   Top,  Bottom, Front
+        Row 2 (left to right):   Back, Right,  Left
+
+    Each cell is split LEFT/RIGHT:
+        LEFT  half = depth panel, RdYlBu_r colormap (RED = NEAR camera,
+                     BLUE = FAR from camera, white = background).
+        RIGHT half = silhouette mask (dark fill = part body, white =
+                     background OR genuine through-hole).
+
+    THIS BLUEPRINT IS THE SOURCE OF TRUTH FOR TOPOLOGY. Use it to decide:
+      * how many DISTINCT outer edges each view has (count corners,
+        identify pockets, identify through-holes),
+      * how many DISTINCT height tiers each depth panel has (each clearly
+        different colour band = a different coplanar face / step / boss
+        top / counterbore tier),
+      * which silhouette holes are real through-holes (they appear at the
+        SAME relative position in BOTH the +/-axis pair of views).
+
+(2) An ExtractedGeometry JSON describing every clustered triangle face
+    extracted from the noisy mesh. Vertex coordinates, areas, cylinder
+    radii / heights / centres, and the bounding box are geometrically
+    precise. USE THESE NUMBERS DIRECTLY IN YOUR OUTPUT — do not round,
+    re-estimate, or alter them.
+
+    HOWEVER: the mesh is NOISY. A single physical face in the blueprint
+    may correspond to dozens or HUNDREDS of fragmented entries in the
+    JSON. Treat the JSON as a number bank, not a face list. When the
+    blueprint shows ONE rectangular base, the output must be ONE base
+    extrude even if the JSON contains 500 planar face entries that all
+    sit on the same plane.
+
+YOUR JOB IS REASONING, NOT MEASUREMENT
+======================================
+Use the blueprint to decide WHICH features exist, then look up exact
+numbers in the JSON. Specifically:
+
+  Q1. Which face group is the BASE SKETCH?
+      Pick the side of the blueprint with the largest, simplest outer
+      silhouette (typically Top / +Z or Bottom / -Z). The base profile
+      should match what that silhouette looks like — not the boundary of
+      whichever fragmented JSON face happens to be largest. Find planar
+      JSON faces that sit on the same principal plane and aggregate them
+      to recover the exact corner coordinates.
+
+  Q2. Which features are ADDITIVE? (extrudes ON TOP of the base)
+      * Distinct depth-band islands on the base view (a darker patch
+        inside the base silhouette) → planar pillar / boss top.
+      * Cylindrical-looking convex bumps in the side views (face_type
+        == "boss" in the JSON) → circular extrudes.
+
+  Q3. Which features are SUBTRACTIVE? (cuts INTO the base)
+      * White islands inside a dark silhouette that ALSO appear in the
+        opposite view at the same position → through-holes
+        (face_type == "hole" in the JSON gives the radius).
+      * Recessed regions where the depth panel shows a deeper band but
+        the silhouette stays SOLID → blind pockets / counterbores.
+
+  Q4. Which side faces (±X, ±Y normals) are JUST RESULTS of the base
+      extrude and should NOT be added as separate operations?
+      A side face whose UV bounding box equals (base_extrude_height,
+      base_outer_dimension) is a result. Skip it.
+
+  Q5. What is the CORRECT ORDER?
+      1. Base sketch + extrude.
+      2. Additive features in ascending Z order.
+      3. Subtractive features last.
+
+CONSTRUCTION RULES (IDENTICAL TO THE NON-BLUEPRINT PATH)
+========================================================
+Rule 1: BASE PROFILE shape.
+        - 4-corner blueprint silhouette → "rectangle", width_mm /
+          depth_mm read from the JSON bounding_box_mm.
+        - Anything else → "polyline" with vertices snapped to whatever
+          consistent JSON face (or aggregated face cluster) matches the
+          blueprint outline. NEVER emit a polyline with hundreds of
+          vertices when the blueprint shows a clean simple shape.
+
+Rule 2: BASE EXTRUDE distance = bounding_box_mm component perpendicular
+        to the chosen base plane.
+
+Rule 3: ADDITIVE PILLAR / BOSS extrudes go on the face selector that
+        matches the base's plane (e.g. ">Z" if the base sits on +Z).
+        - Planar pillar top: profile width/depth from its bounding_box.
+          distance_mm = pillar top z - base top z.
+          position_x / position_y = pillar centre - base face centre,
+          projected onto the base plane.
+        - Cylindrical boss: profile shape "circle",
+          diameter_mm = 2 * radius_mm. distance_mm = boss height_mm.
+
+Rule 4: HOLE CUTS use shape "circle", diameter_mm = 2 * radius_mm,
+        operation = "cut", direction matches the cut direction on the
+        chosen face. distance_mm = at LEAST the part thickness through
+        which the hole goes (use cylinder height_mm padded slightly).
+        position_x / position_y = cylinder centre projected onto the base
+        face plane, minus the base face centroid.
+
+Rule 5: SIDE FACES (±X, ±Y) that match (base_extrude_height ×
+        base_dimension) are NOT operations. Drop them.
+
+Rule 6: NEVER MERGE two distinct features. Two holes with the same
+        radius at different XY positions = two SketchOperation entries.
+
+Rule 7: NEVER FRAGMENT a single feature. If the blueprint shows ONE base
+        rectangle but the JSON has 500 planar faces all on the same
+        plane, output ONE base extrude. Same for bosses, pockets, holes.
+
+Rule 8: SILHOUETTE DECOMPOSITION — recognise composite primitives.
+        Before approximating any curved silhouette as a polyline or
+        treating it as an "oval", inspect the blueprint outline edge by
+        edge and ask: is this a single primitive, or a primitive with
+        chord cuts?
+
+        Common composite patterns to recognise (NOT exhaustive):
+
+        - "D-CUT" / "DOUBLE FLAT" / "STADIUM-LOOKING":
+          Outline = curved on two opposite sides + STRAIGHT PARALLEL
+          segments on the other two sides. This is NOT an ellipse and
+          NOT an oval. It is a CIRCLE with two parallel flat cuts.
+          Decompose as:
+              (a) ONE base circle extrude. diameter_mm = the LONG
+                  dimension of the silhouette (the curved-side span).
+              (b) TWO rectangular cuts (operation = "cut"), one on each
+                  flat side. Cut width_mm = the long dimension; cut
+                  depth_mm = (diameter - short_dimension) / 2; cut
+                  distance_mm = the full extrude height; positions are
+                  +(short_dim/2 + cut_depth/2) and -(short_dim/2 +
+                  cut_depth/2) along the short axis.
+          A common giveaway: the side views (Front/Right) show clean
+          rectangular silhouettes, not curved profiles.
+
+        - "ROUNDED RECTANGLE" / "OBROUND" (semicircle ends + straight
+          parallel sides): genuine stadium shape. CadQuery can express
+          this as a polyline of straight segments + arcs; if the schema
+          forces "rectangle" or "circle", emit a "rectangle" with the
+          long/short dims and add a note that the corners are rounded.
+
+        - "TRUE ELLIPSE / OVAL": curvature varies smoothly with NO
+          straight segments anywhere on the outline. Rare in machined
+          parts. Approximate as a circle of diameter = average of the
+          two axes and add a note flagging the approximation.
+
+        When in doubt between "true oval" and "circle with flats",
+        zoom on the silhouette mentally and check whether ANY portion
+        of the outline contains a straight segment. A single straight
+        segment means it is NOT an oval — decompose accordingly.
+
+POSITION CONVENTION
+===================
+position_x and position_y are the offset from the WORKING FACE's
+centroid to the FEATURE's centroid, in the working face's local UV.
+A feature at the exact face centre → (0, 0).
+
+OUTPUT FORMAT
+=============
+First write your reasoning briefly:
+
+  Q1: ...
+  Q2: ...
+  Q3: ...
+  Q4: ...
+  Q5: ...
+
+Then the JSON wrapped EXACTLY like this (markers required):
+
+{JSON_BEGIN}
+{{ ...SketchPartDescription JSON... }}
+{JSON_END}
+
+SKETCHPARTDESCRIPTION SCHEMA
+============================
+{{
+  "sketches": [
+    {{
+      "order": <int starting at 1>,
+      "plane": "XY" | "XZ" | "YZ" | ">Z" | "<Z" | ">X" | "<X" | ">Y" | "<Y",
+      "profile": {{
+        "shape": "rectangle" | "circle" | "polyline",
+        "width_mm":   <float or null>,
+        "depth_mm":   <float or null>,
+        "diameter_mm":<float or null>,
+        "vertices":   <list of [u,v] pairs in mm or null>
+      }},
+      "operation": "extrude" | "cut",
+      "distance_mm": <float>,
+      "direction":   "positive" | "negative",
+      "position_x":  <float>,
+      "position_y":  <float>
+    }}
+  ],
+  "bounding_box_mm": [<float>, <float>, <float>],
+  "confidence": "high" | "medium" | "low",
+  "notes": <string or null>
+}}
+
+The first sketch must use an ABSOLUTE plane (XY / XZ / YZ).
+Subsequent sketches that act on a base face should use the face
+selector form (>Z, <Z, >X, ...).
+DO NOT invent extra fields like "sketch_name" or "part_name" — the
+parser strictly validates against the schema above and will fail.
+"""
+
+
 def call_claude_faces(
     diagram_path: str | Path,
     geometry: ExtractedGeometry,
+    *,
     render_path: str | Path | None = None,
+    clean_view_path: str | Path | None = None,
 ) -> SketchPartDescription:
     """Run the face-geometry vision pipeline.
 
-    ``diagram_path``: PNG produced by ``face_diagram_renderer``. The
-        sibling ``.json`` is read automatically and embedded in the
-        user message so Claude never has to re-extract numbers.
+    ``diagram_path``: PNG produced by ``face_diagram_renderer``. Used
+        only when ``clean_view_path`` is None (legacy / direct CLI path).
     ``geometry``: the same ExtractedGeometry that was used to render
         the diagram (we accept it directly to avoid double-loading).
     ``render_path``: optional path to the ORIGINAL 6-view render PNG of
         the input STL. When provided, ``opencv_validator`` scans it and
         appends ``MissedFeature`` entries to ``geometry.missed_features``
         BEFORE building the prompt. ``geometry`` is mutated in place.
+    ``clean_view_path``: PNG of the denoised + recoloured 6-view
+        orthographic blueprint (see ``backend/ai_infra/clean_view_recolor``).
+        When provided, the noisy face diagram is DROPPED — only the
+        blueprint is sent as image input, and a blueprint-aware system
+        prompt is used instead. The geometry JSON is always attached
+        because Claude needs it to copy exact numbers.
 
     Returns a validated ``SketchPartDescription`` ready to feed
     straight into ``sketch_builder.build_from_sketches``.
@@ -450,17 +637,33 @@ def call_claude_faces(
         f"OpenCV validation findings:\n{_format_missed_features_summary(geometry)}"
     )
 
+    if clean_view_path is not None:
+        # Blueprint-only path. The noisy face_diagram.png is intentionally
+        # NOT attached: it just competes with the cleaner signal and
+        # encourages Claude to enumerate fragmented mesh clusters.
+        system_prompt = SYSTEM_PROMPT_BLUEPRINT
+        content: list[dict] = [
+            _encode_image(clean_view_path),
+            {"type": "text", "text": user_text},
+        ]
+    else:
+        # Legacy path (no blueprint available). Send the face diagram so
+        # the older system prompt's references to "the diagram" still
+        # resolve.
+        system_prompt = SYSTEM_PROMPT
+        content = [
+            _encode_image(diagram_path),
+            {"type": "text", "text": user_text},
+        ]
+
     response = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=MAX_TOKENS,
-        system=SYSTEM_PROMPT,
+        system=system_prompt,
         messages=[
             {
                 "role": "user",
-                "content": [
-                    _encode_image(diagram_path),
-                    {"type": "text", "text": user_text},
-                ],
+                "content": content,
             }
         ],
     )

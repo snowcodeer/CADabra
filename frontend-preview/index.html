@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CADabra</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 16px; background: #f7f7f7; }
+    h1 { margin: 0 0 16px; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .panel { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+    #results { display: none; }
+    .cols { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 12px; }
+    pre { background: #111; color: #eee; padding: 10px; border-radius: 6px; overflow: auto; max-height: 420px; }
+    #viewer { width: 100%; height: 420px; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
+    .badge { display: inline-block; padding: 4px 8px; border-radius: 12px; background: #eee; margin-right: 6px; }
+    .error { color: #900; background: #ffd9d9; border: 1px solid #cc8080; padding: 8px; border-radius: 6px; display:none; }
+    .hidden { display: none; }
+    img { max-width: 100%; border: 1px solid #ddd; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>CADabra - Point Cloud to Parametric CAD</h1>
+
+  <div class="panel">
+    <div class="row">
+      <label for="sampleSelect">Sample:</label>
+      <select id="sampleSelect"></select>
+      <input id="fileInput" type="file" accept=".ply,.xyz,.stl" />
+      <button id="runBtn">Run Pipeline</button>
+      <span id="loading" class="hidden">Running...</span>
+    </div>
+    <div id="errorBox" class="error"></div>
+  </div>
+
+  <div id="results" class="panel">
+    <div class="cols">
+      <div>
+        <h3>Render Grid</h3>
+        <img id="gridImage" alt="render grid" />
+      </div>
+      <div>
+        <h3>LLM CadQuery</h3>
+        <button id="copyBtn">Copy</button>
+        <pre id="codeBlock"></pre>
+        <h3>Ground Truth CadQuery</h3>
+        <pre id="groundTruthBlock"></pre>
+      </div>
+      <div>
+        <h3>STL Preview</h3>
+        <div id="viewer"></div>
+      </div>
+    </div>
+
+    <div style="margin-top:12px;">
+      <span id="execBadge" class="badge"></span>
+      <span id="solidBadge" class="badge"></span>
+      <span id="waterBadge" class="badge"></span>
+      <span id="bboxBadge" class="badge"></span>
+      <span id="confBadge" class="badge"></span>
+    </div>
+
+    <details style="margin-top:8px;">
+      <summary>LLM reasoning</summary>
+      <pre id="reasoningBlock"></pre>
+    </details>
+
+    <div style="margin-top:10px;">
+      <a id="stepLink" target="_blank"><button>Download STEP</button></a>
+      <a id="stlLink" target="_blank"><button>Download STL</button></a>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

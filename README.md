@@ -39,7 +39,7 @@ clean orthographic view PNG
 parametric CAD (.py) ─► CadQuery exec ─► STEP / STL
 ```
 
-The frontend (`frontend/deepcad-selector.html`) shows a per-sample 5-panel comparison: ground-truth STL, generated point cloud, raw reconstruction, geometry view (raw), and gpt-image-2 cleaned view.
+The frontend (`frontend-preview/deepcad-selector.html`) shows a per-sample 5-panel comparison: ground-truth STL, generated point cloud, raw reconstruction, geometry view (raw), and gpt-image-2 cleaned view.
 
 ## Reconstruction key ideas
 
@@ -73,7 +73,7 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Serve frontend from `frontend/` via any static server.
+Serve frontend from `frontend-preview/` via any static server.
 
 ## Reproduce the test-sample pipeline
 

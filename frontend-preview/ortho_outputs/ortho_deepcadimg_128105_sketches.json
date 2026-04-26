@@ -1,0 +1,310 @@
+{
+  "sketches": [
+    {
+      "order": 1,
+      "plane": "XZ",
+      "profile": {
+        "shape": "arc_line",
+        "width_mm": 101.41509433962264,
+        "depth_mm": 24.056603773584907,
+        "vertices": null,
+        "diameter_mm": null,
+        "arc_line_segments": [
+          {
+            "kind": "line",
+            "start": [
+              -50.91680452747464,
+              2.0907953207798626
+            ],
+            "end": [
+              -49.84303140565854,
+              -4.964834746656937
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          },
+          {
+            "kind": "arc",
+            "start": [
+              -49.547521627438904,
+              -4.851384343310346
+            ],
+            "end": [
+              -41.70596519780775,
+              -11.408848101447099
+            ],
+            "arc_centre": [
+              -38.59636983482034,
+              0.2769559575206683
+            ],
+            "arc_radius_mm": 12.092460453774509,
+            "arc_ccw": null
+          },
+          {
+            "kind": "line",
+            "start": [
+              -41.73592305054836,
+              -11.688696567092771
+            ],
+            "end": [
+              -34.662542743711406,
+              -11.187483640739863
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          },
+          {
+            "kind": "line",
+            "start": [
+              -34.645713524130834,
+              -11.122988160176844
+            ],
+            "end": [
+              -28.56183364568049,
+              -7.273238254917497
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          },
+          {
+            "kind": "line",
+            "start": [
+              -28.537735849056602,
+              -7.311320754716982
+            ],
+            "end": [
+              28.537735849056602,
+              -7.311320754716982
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          },
+          {
+            "kind": "line",
+            "start": [
+              28.551760913098903,
+              -7.291385909988087
+            ],
+            "end": [
+              33.260872294251534,
+              -10.604458552446932
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          },
+          {
+            "kind": "arc",
+            "start": [
+              33.36511822841105,
+              -10.405576568013833
+            ],
+            "end": [
+              40.761800384710554,
+              -11.382346877828459
+            ],
+            "arc_centre": [
+              38.37125416204223,
+              -0.9905660377311943
+            ],
+            "arc_radius_mm": 10.663199345005527,
+            "arc_ccw": null
+          },
+          {
+            "kind": "line",
+            "start": [
+              40.88863524944163,
+              -11.72030383927704
+            ],
+            "end": [
+              47.04237318791492,
+              -8.459295551840231
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          },
+          {
+            "kind": "arc",
+            "start": [
+              46.73391326656548,
+              -8.016718851276844
+            ],
+            "end": [
+              47.240436560237164,
+              8.111770905915437
+            ],
+            "arc_centre": [
+              39.30344337753883,
+              -0.4525829016986207
+            ],
+            "arc_radius_mm": 10.779540138639153,
+            "arc_ccw": null
+          },
+          {
+            "kind": "line",
+            "start": [
+              47.529211328220505,
+              8.46027782250235
+            ],
+            "end": [
+              41.35830601273906,
+              12.169258649418786
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          },
+          {
+            "kind": "line",
+            "start": [
+              41.27358490566038,
+              12.028301886792454
+            ],
+            "end": [
+              35.613207547169814,
+              12.028301886792454
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          },
+          {
+            "kind": "line",
+            "start": [
+              35.53958925478962,
+              12.15486937757764
+            ],
+            "end": [
+              28.055241539641052,
+              7.801580117036582
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          },
+          {
+            "kind": "line",
+            "start": [
+              28.065945366101055,
+              7.889835973577178
+            ],
+            "end": [
+              -28.066088130792636,
+              7.841295978439219
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          },
+          {
+            "kind": "line",
+            "start": [
+              -28.071918969819514,
+              7.772373811977004
+            ],
+            "end": [
+              -36.01247058637999,
+              12.159409647364168
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          },
+          {
+            "kind": "line",
+            "start": [
+              -36.08490566037736,
+              12.028301886792454
+            ],
+            "end": [
+              -41.74528301886792,
+              12.028301886792454
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          },
+          {
+            "kind": "line",
+            "start": [
+              -41.8300041259466,
+              12.169258649418786
+            ],
+            "end": [
+              -48.00090944142805,
+              8.46027782250235
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          },
+          {
+            "kind": "line",
+            "start": [
+              -47.95613642399226,
+              8.291214543008849
+            ],
+            "end": [
+              -50.91680452747464,
+              2.0907953207798626
+            ],
+            "arc_centre": null,
+            "arc_radius_mm": null,
+            "arc_ccw": null
+          }
+        ]
+      },
+      "operation": "extrude",
+      "distance_mm": 24.056603773584907,
+      "direction": "positive",
+      "position_x": 0.0,
+      "position_y": 0.0
+    },
+    {
+      "order": 2,
+      "plane": ">Y",
+      "profile": {
+        "shape": "circle",
+        "width_mm": 11.409264082961158,
+        "depth_mm": 11.409264082961158,
+        "vertices": null,
+        "diameter_mm": 11.409264082961158,
+        "arc_line_segments": null
+      },
+      "operation": "cut",
+      "distance_mm": 25.056603773584907,
+      "direction": "negative",
+      "position_x": 38.69753832763662,
+      "position_y": 0.0
+    },
+    {
+      "order": 3,
+      "plane": ">Y",
+      "profile": {
+        "shape": "circle",
+        "width_mm": 11.409264082961158,
+        "depth_mm": 11.409264082961158,
+        "vertices": null,
+        "diameter_mm": 11.409264082961158,
+        "arc_line_segments": null
+      },
+      "operation": "cut",
+      "distance_mm": 25.056603773584907,
+      "direction": "negative",
+      "position_x": -38.69753832763662,
+      "position_y": 0.0
+    }
+  ],
+  "bounding_box_mm": [
+    100.0,
+    24.056603773584907,
+    24.882075471698112
+  ],
+  "confidence": "high",
+  "notes": "deterministic CV inference. Base: arc_line outline (3 arcs + 14 lines). Bbox px (X/Y/Z) = 212/51/53, mm/px = 0.472. D-cuts: 0. Through-holes Z/Y/X: 0/2/0. Side-face: none."
+}
