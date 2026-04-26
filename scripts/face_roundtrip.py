@@ -62,10 +62,31 @@ from backend.ai_infra.face_llm_client import call_claude_faces  # noqa: E402
 from backend.ai_infra.sketch_builder import build_from_sketches  # noqa: E402
 from backend.ai_infra.sketch_llm_client import warn_if_uncertain  # noqa: E402
 from backend.ai_infra.sketch_models import SketchPartDescription  # noqa: E402
+from backend.ai_infra.mesh_sanity import print_rebuild_sanity  # noqa: E402
 from backend.pipeline.stl_renderer import render_stl_to_grid  # noqa: E402
 
 
 OUTPUT_DIR = REPO_ROOT / "backend" / "outputs"
+DEEPCAD_GRIDS_DIR = OUTPUT_DIR / "deepcad_selected_grids"
+
+
+def _resolve_input_grid(stem: str, stl_path: Path) -> Path:
+    """Locate the 6-view render PNG of the INPUT STL (used by
+    ``opencv_validator``).
+
+    Preference order:
+      1. Pre-baked grid in ``backend/outputs/deepcad_selected_grids/``
+         — same image used in the comparison summaries.
+      2. Cached on-the-fly render at ``face_<stem>_input_grid.png``.
+      3. Render fresh if neither exists.
+    """
+    pre = DEEPCAD_GRIDS_DIR / f"{stem}_grid.png"
+    if pre.is_file():
+        return pre
+    cached = OUTPUT_DIR / f"face_{stem}_input_grid.png"
+    if not cached.is_file():
+        render_stl_to_grid(stl_path, cached, part_id=stem)
+    return cached
 
 
 @dataclass(frozen=True)
@@ -169,7 +190,9 @@ def _print_sketch_summary(part: SketchPartDescription) -> None:
 # ---------------------------------------------------------------------------
 # Build / execute / re-render
 # ---------------------------------------------------------------------------
-def build_and_render(part: SketchPartDescription, paths: RunPaths) -> tuple[str, bool]:
+def build_and_render(
+    part: SketchPartDescription, paths: RunPaths, source_stl: Path,
+) -> tuple[str, bool]:
     _print_header("Step 4 — Build CadQuery code")
     code = build_from_sketches(part)
     print(code)
@@ -215,6 +238,12 @@ def build_and_render(part: SketchPartDescription, paths: RunPaths) -> tuple[str,
         f"STEP written: {paths.step.relative_to(REPO_ROOT)} "
         f"({paths.step.stat().st_size} bytes)"
     )
+
+    _print_header("Rebuild sanity (input vs output STL)")
+    try:
+        print_rebuild_sanity(source_stl, paths.stl)
+    except Exception as exc:
+        print(f"[sanity] skipped ({exc})", file=sys.stderr)
 
     _print_header("Step 6 — Render reconstructed STL")
     try:
@@ -435,8 +464,23 @@ def main(argv: list[str]) -> int:
     # ------- Step 3: Claude — construction-sequence reasoning ---------
     _print_header("Step 3 — Claude (face-geometry construction reasoning)")
     try:
-        part = call_claude_faces(paths.diagram, geometry)
+        render_path = _resolve_input_grid(paths.part_id, stl_path)
+        print(f"[opencv] using input render: {render_path.relative_to(REPO_ROOT)}")
+        part = call_claude_faces(paths.diagram, geometry, render_path)
         _print_sketch_summary(part)
+        if geometry.missed_features:
+            print(f"\n[opencv] {len(geometry.missed_features)} missed feature(s):")
+            for f in geometry.missed_features:
+                cx, cy, cz = f.approximate_centre_mm
+                sw, sh = f.approximate_size_mm
+                print(
+                    f"  - {f.feature_type:14s} shape={f.approximate_shape:9s} "
+                    f"centre=({cx:6.1f},{cy:6.1f},{cz:6.1f}) "
+                    f"size=({sw:5.1f},{sh:5.1f}) "
+                    f"depth={f.depth_type:7s} conf={f.confidence}"
+                )
+        else:
+            print("\n[opencv] no missed features (face extraction looks complete)")
         warn_if_uncertain(part, "face-vision")
         results["3. claude faces"] = True
         final_part = part
@@ -447,7 +491,7 @@ def main(argv: list[str]) -> int:
 
     # ------- Steps 4-6: build, execute, re-render ----------------------
     try:
-        build_and_render(part, paths)
+        build_and_render(part, paths, stl_path)
         results["4. build code"] = True
         results["5. execute cadquery"] = True
         results["6. render reconstruction"] = True
