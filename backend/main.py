@@ -6,6 +6,15 @@ import time
 import uuid
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
+import logfire
+
+logfire.configure()
+logfire.instrument_pydantic()
+
 import open3d as o3d
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +32,7 @@ SAMPLE_DATA_DIR = Path(os.getenv("SAMPLE_DATA_DIR", "./sample_data")).resolve()
 MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "10"))
 
 app = FastAPI(title="CADabra")
+logfire.instrument_fastapi(app)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

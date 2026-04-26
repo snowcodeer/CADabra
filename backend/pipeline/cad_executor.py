@@ -5,6 +5,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import logfire
+
 
 def _inject_exports(cadquery_code: str, output_dir: Path, input_id: str) -> str:
     step_path = output_dir / f"{input_id}.step"
@@ -31,14 +33,25 @@ def execute_cadquery(cadquery_code: str, output_dir: str | Path, input_id: str) 
         temp_path = Path(temp_file.name)
 
     try:
-        process = subprocess.run(
-            ["python", str(temp_path)],
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
+        with logfire.span("cadquery_execution", job_id=input_id):
+            process = subprocess.run(
+                ["python", str(temp_path)],
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
+        logfire.info(
+            "cadquery_result",
+            success=process.returncode == 0,
+            error=process.stderr.strip() if process.returncode != 0 else None,
         )
     except subprocess.TimeoutExpired as exc:
+        logfire.info(
+            "cadquery_result",
+            success=False,
+            error=f"CadQuery execution timed out after {timeout_seconds}s: {exc}",
+        )
         return {
             "success": False,
             "step_path": None,

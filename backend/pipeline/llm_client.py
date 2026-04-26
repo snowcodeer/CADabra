@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import logfire
+
+logfire.configure()
+logfire.instrument_anthropic()
+
 import base64
 import json
 import os
