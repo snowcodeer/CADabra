@@ -1,5 +1,5 @@
-import { Suspense, useMemo, useRef } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Environment } from "@react-three/drei";
 import * as THREE from "three";
 import { Podium } from "@/components/cad/Podium";
@@ -147,14 +147,57 @@ function PointCloudBrick() {
   );
 }
 
+/** Base FOV for the hero brick; widened when the tab is browser-zoomed out (visualViewport.scale < 1). */
+const HERO_BASE_FOV = 30;
+const HERO_MAX_FOV = 52;
+
+function useZoomAdjustedFov() {
+  const [fov, setFov] = useState(HERO_BASE_FOV);
+  useEffect(() => {
+    const update = () => {
+      const scale = window.visualViewport?.scale ?? 1;
+      if (scale < 1) {
+        setFov(Math.min(HERO_MAX_FOV, HERO_BASE_FOV + (1 - scale) * 48));
+      } else {
+        setFov(HERO_BASE_FOV);
+      }
+    };
+    update();
+    window.addEventListener("resize", update);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", update);
+    vv?.addEventListener("scroll", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      vv?.removeEventListener("resize", update);
+      vv?.removeEventListener("scroll", update);
+    };
+  }, []);
+  return fov;
+}
+
+function PodiumCameraFov({ fov }: { fov: number }) {
+  const { camera } = useThree();
+  useEffect(() => {
+    const c = camera as THREE.PerspectiveCamera;
+    if (c.isPerspectiveCamera) {
+      c.fov = fov;
+      c.updateProjectionMatrix();
+    }
+  }, [camera, fov]);
+  return null;
+}
+
 export function LegoPodiumScene() {
+  const fov = useZoomAdjustedFov();
   return (
     <Canvas
       shadows
       dpr={[1, 2]}
-      camera={{ position: [0, 1.3, 10.2], fov: 30 }}
+      camera={{ position: [0, 1.3, 10.2], fov: HERO_BASE_FOV }}
       gl={{ antialias: true, alpha: true }}
     >
+      <PodiumCameraFov fov={fov} />
       <ambientLight intensity={0.65} />
       <directionalLight
         position={[5, 8, 4]}

@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -1729,6 +1729,78 @@ function PhaseNarration({ stage, elapsed }: { stage: Stage; elapsed: number }) {
   );
 }
 
+/**
+ * Stage 0 left column: title stays in place; description block is translated by
+ * (titleWidth - descWidth) / 2 on md+ so both share a vertical centerline.
+ */
+function Stage0LeftCopy() {
+  const titleRef = useRef<HTMLDivElement>(null);
+  const descRef = useRef<HTMLDivElement>(null);
+  const [descShiftX, setDescShiftX] = useState(0);
+
+  const sync = useCallback(() => {
+    const md = typeof globalThis !== "undefined" && globalThis.matchMedia?.("(min-width: 768px)").matches;
+    if (!md) {
+      setDescShiftX(0);
+      return;
+    }
+    const t = titleRef.current?.getBoundingClientRect().width ?? 0;
+    const d = descRef.current?.getBoundingClientRect().width ?? 0;
+    if (t > 0 && d > 0) {
+      setDescShiftX(Math.round((t - d) / 2));
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    sync();
+  }, [sync]);
+
+  useEffect(() => {
+    const ro = new ResizeObserver(() => {
+      requestAnimationFrame(sync);
+    });
+    if (titleRef.current) ro.observe(titleRef.current);
+    if (descRef.current) ro.observe(descRef.current);
+    const mq = globalThis.matchMedia?.("(min-width: 768px)");
+    const onMQ = () => sync();
+    mq?.addEventListener("change", onMQ);
+    globalThis.addEventListener?.("resize", sync);
+    return () => {
+      ro.disconnect();
+      mq?.removeEventListener("change", onMQ);
+      globalThis.removeEventListener?.("resize", sync);
+    };
+  }, [sync]);
+
+  return (
+    <div className="order-2 flex h-full min-h-0 flex-col items-center justify-start pl-0 pt-4 sm:pl-2 md:order-1 md:items-end md:justify-center md:pl-4 md:pt-0 md:pr-0 lg:pl-5">
+      <div className="flex w-full justify-center md:justify-end">
+        <div ref={titleRef} className="w-fit max-w-full">
+          <ScanToCadTitle className="text-foreground" />
+        </div>
+      </div>
+      <div className="mt-4 flex w-full justify-center sm:mt-5 md:mt-6 md:justify-end">
+        <div
+          ref={descRef}
+          className="w-full max-w-[22.5rem] sm:max-w-[20rem] md:max-w-[18rem] lg:max-w-[20rem] xl:max-w-[22.5rem]"
+          style={{
+            height: "min(50vh, 20rem, 320px)",
+            transform: descShiftX !== 0 ? `translateX(${descShiftX}px)` : undefined,
+          }}
+        >
+          <CanvasReflowText
+            text="Drop in a raw .ply point cloud, the messy noisy swarm of 3D dots a scanner spits out after capturing a real object. CADabra cleans it up: it strips out stray points, smooths the surface, and stitches the dots into a watertight triangle mesh that actually looks like the thing you scanned. Then it spins the model into six clean orthographic views (front, back, left, right, top, bottom), the exact projections an engineer needs to rebuild the part in CAD."
+            lineHeight={22}
+            font='italic 300 14px Inter, ui-sans-serif, system-ui, sans-serif'
+            duration={6000}
+            startDelay={350}
+            className="text-foreground"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const Workflow = () => {
   const navigate = useNavigate();
@@ -1868,28 +1940,7 @@ const Workflow = () => {
                       columnGap: "min(1.5rem, 3vw)",
                     }}
                   >
-                    {/* LEFT — Title + description, both nudged downward
-                        and inset toward the center. */}
-                    <div className="order-2 flex h-full min-h-0 flex-col items-center pl-0 pt-4 sm:pl-2 md:order-1 md:pl-4 md:pt-10 lg:pl-5 lg:pt-16">
-                      <div className="w-full">
-                        <ScanToCadTitle className="text-foreground" />
-                      </div>
-                      <div className="mt-4 flex w-full justify-center sm:mt-5 md:mt-6">
-                        <div
-                          className="w-full max-w-[22.5rem] sm:max-w-[20rem] md:max-w-[18rem] lg:max-w-[20rem] xl:max-w-[22.5rem]"
-                          style={{ height: "min(50vh, 20rem, 320px)" }}
-                        >
-                          <CanvasReflowText
-                            text="Drop in a raw .ply point cloud, the messy noisy swarm of 3D dots a scanner spits out after capturing a real object. CADabra cleans it up: it strips out stray points, smooths the surface, and stitches the dots into a watertight triangle mesh that actually looks like the thing you scanned. Then it spins the model into six clean orthographic views (front, back, left, right, top, bottom), the exact projections an engineer needs to rebuild the part in CAD."
-                            lineHeight={22}
-                            font='italic 300 14px Inter, ui-sans-serif, system-ui, sans-serif'
-                            duration={6000}
-                            startDelay={350}
-                            className="text-foreground"
-                          />
-                        </div>
-                      </div>
-                    </div>
+                    <Stage0LeftCopy />
 
                     {/* RIGHT — Brick + upload, nudged slightly higher
                         and inset toward the center. */}
