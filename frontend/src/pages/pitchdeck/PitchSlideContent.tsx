@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Play } from "lucide-react";
 import { deckSlideTitleClass, Eyebrow, GradText } from "./deckStyles";
 
@@ -331,7 +331,34 @@ const RESEARCH_SCATTER: { y: number; r: number; z: number }[] = [
   { y: 16, r: -9, z: 7 },
 ];
 
+const prefersReducedMotion = () =>
+  typeof globalThis !== "undefined" &&
+  "matchMedia" in globalThis &&
+  globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 export function Pitch06Research() {
+  const papersRef = useRef<HTMLDivElement>(null);
+  const [slap, setSlap] = useState(prefersReducedMotion);
+
+  useEffect(() => {
+    if (slap) return;
+    const el = papersRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) {
+            setSlap(true);
+            io.disconnect();
+          }
+        }
+      },
+      { threshold: 0.2, rootMargin: "0px 0px -6% 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [slap]);
+
   return (
     <div className="mx-auto w-full max-w-6xl px-1 py-2">
       <Eyebrow>Research</Eyebrow>
@@ -343,7 +370,10 @@ export function Pitch06Research() {
       </p>
       <div className="mt-4 w-full min-w-0">
         <div className="flex min-h-[min(60vh,540px)] w-full items-center justify-center overflow-x-auto overflow-y-visible px-1 py-8 sm:min-h-[min(68vh,660px)] sm:px-2">
-          <div className="flex w-max max-w-full flex-nowrap items-center justify-center sm:mx-auto">
+          <div
+            ref={papersRef}
+            className="flex w-max max-w-full flex-nowrap items-center justify-center sm:mx-auto"
+          >
             {RESEARCH_PAPERS.map((p, i) => {
               const s = RESEARCH_SCATTER[i] ?? { y: 0, r: 0, z: 1 };
               // First card: no overlap. Every following card pulls left
@@ -353,6 +383,12 @@ export function Pitch06Research() {
                 i === 0
                   ? ""
                   : "-ml-[5rem] sm:-ml-[6.5rem] md:-ml-[7.5rem] lg:-ml-[8.5rem]";
+              const paperStyle: CSSProperties = {
+                zIndex: s.z,
+                ["--paper-y" as string]: `${s.y}px`,
+                ["--paper-r" as string]: `${s.r}deg`,
+                ["--slap-delay" as string]: `${0.08 + i * 0.11}s`,
+              };
               return (
                 <a
                   key={p.href}
@@ -360,12 +396,10 @@ export function Pitch06Research() {
                   target="_blank"
                   rel="noopener noreferrer"
                   title={p.label}
-                  className={`research-slap-in group relative flex w-[min(9rem,38vw)] shrink-0 flex-col overflow-visible rounded-lg border border-foreground/10 bg-white p-1 shadow-[0_14px_36px_rgba(15,23,42,0.18),0_3px_8px_rgba(15,23,42,0.1)] transition duration-200 ease-out hover:!z-30 hover:shadow-[0_24px_48px_rgba(15,23,42,0.24)] sm:w-48 md:w-56 lg:w-64 ${overlapMl}`}
-                  style={{
-                    zIndex: s.z,
-                    transform: `translateY(${s.y}px) rotate(${s.r}deg)`,
-                    animationDelay: `${0.04 + i * 0.06}s`,
-                  }}
+                  className={`group relative flex w-[min(9rem,38vw)] shrink-0 flex-col overflow-visible rounded-lg border border-foreground/10 bg-white p-1 shadow-[0_14px_36px_rgba(15,23,42,0.18),0_3px_8px_rgba(15,23,42,0.1)] hover:!z-30 hover:shadow-[0_24px_48px_rgba(15,23,42,0.24)] sm:w-48 md:w-56 lg:w-64 ${overlapMl} ${
+                    slap ? "research-slap-in" : "research-slap-pending"
+                  }`}
+                  style={paperStyle}
                 >
                   <div className="relative aspect-[3/4] w-full overflow-hidden rounded-[6px] bg-white">
                     <img
