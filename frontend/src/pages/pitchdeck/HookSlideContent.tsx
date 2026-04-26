@@ -1,4 +1,5 @@
 import { useMemo, type CSSProperties } from "react";
+import { CadabraCadLockup } from "@/components/CadabraWordmark";
 import { GradText, glassHudClass } from "./deckStyles";
 
 const hookRand = (i: number) => {
@@ -96,60 +97,112 @@ function PointCloud({ count, variant, className = "h-auto w-[112px] shrink-0" }:
 const hookPanel =
   `flex h-full min-h-[320px] flex-col items-center justify-center ${glassHudClass} p-6`;
 
-const HOOK01_COMPETITORS = ["ADAM CAD", "Spline AI", "Zoo.dev", "Leo AI"] as const;
+/** Shrink-wrapped plate behind a single headline line (use inline text inside—no inner `block` or the band goes full width). */
+const hookHeadlinePlate =
+  "inline-block max-w-full rounded-md stage-bg px-1.5 py-0.5 text-center sm:px-2 sm:py-1 md:px-2.5 md:py-1";
 
+/** Logo chips: white card so brand marks (esp. dark/inverted) read clearly. */
+const hookCompetitorPlate =
+  "rounded-md border border-border/60 bg-white px-2 py-1 shadow-sm sm:px-2.5 sm:py-1";
+
+/**
+ * Real marks: Adam icon + name; Zoo favicon (inverted for white); Leo Framer wordmark.
+ */
+const HOOK01_COMPETITORS: {
+  label: string;
+  place: CSSProperties;
+  src: string;
+  primary?: boolean;
+  wordmark?: boolean;
+  /** Show next to the mark (e.g. “Adam” beside icon). */
+  name?: string;
+  /** e.g. Zoo favicon is designed for dark UI—invert for dark-on-white on #fff. */
+  invertImg?: boolean;
+}[] = [
+  {
+    label: "ADAM (adam.new)",
+    src: "/pitch-deck/logos/adam-180.png",
+    name: "Adam",
+    place: { top: "3.5%", left: "50%", zIndex: 16, transform: "translateX(-50%) rotate(-1deg)" },
+    primary: true,
+  },
+  {
+    label: "Zoo (zoo.dev)",
+    src: "/pitch-deck/logos/zoo-favicon.ico",
+    invertImg: true,
+    place: { bottom: "4.5%", left: "8%", transform: "rotate(2deg)" },
+  },
+  {
+    label: "Leo AI (getleo.ai)",
+    src: "/pitch-deck/logos/leo.svg",
+    place: { top: "35%", right: "3.5%", transform: "translateY(-50%) rotate(-2deg)" },
+    wordmark: true,
+  },
+];
+
+/** What people actually type—no “magic prefix”, reads like a chat to the model. */
 const HOOK01_PROMPT_WALL: string[] = [
-  "TEXT-TO-CAD: 180 mm bottle, 64 mm body Ø, 1.2 mm wall, STEP out",
-  "TEXT TO CAD: M6 through-hole grid 40mm pitch, 3mm steel",
-  "TEXT-TO-CAD: flanged pipe DN50, PN16, length 200mm",
-  "TEXT TO CAD: keyboard plate ISO, 1.5mm, switch cutouts",
-  "TEXT-TO-CAD: parametric wine glass, stem 80mm, stable base",
-  "TEXT TO CAD: Lego-compatible brick 2×4, stud height 1.7mm",
-  "TEXT-TO-CAD: heat-set insert boss, M3, 5.2mm minor Ø",
-  "TEXT TO CAD: sheet bracket, 90° fold, 2mm AL5052",
-  "TEXT-TO-CAD: drone arm 5\" props, 16×16 M3 mount",
-  "TEXT TO CAD: carabiner gate, 8mm body, 6061",
-  "TEXT-TO-CAD: lamp shade loft 220mm, revolve+shell",
-  "TEXT TO CAD: gear module 1.0, 24T, 20° pressure angle",
-  "TEXT-TO-CAD: enclosure snap-fit clips, 0.6mm deflection",
-  "TEXT TO CAD: PCB standoff, M2.5, 8mm standoff h",
-  "TEXT-TO-CAD: manifold 3/8 NPT, internal passages",
-  "TEXT TO CAD: handwheel Ø120, 8mm shaft D-flat",
-  "TEXT-TO-CAD: sprocket 08B-1, 11 teeth, hub pilot",
-  "TEXT TO CAD: vacuum cup 40mm, G1/4 thread boss",
-  "TEXT-TO-CAD: bicycle bottle cage, 64mm min spacing",
-  "TEXT TO CAD: rosette 6-fold, 2mm fillet, mill from top",
-  "TEXT-TO-CAD: cable strain relief, TPU 95A, wall 1.0mm",
-  "TEXT-TO-CAD: injection mold parting line, draft 2° per side",
-  "TEXT-TO-CAD: optical bench post 12.7mm, 1/4-20",
-  "TEXT-TO-CAD: robot link, hollow 8×8mm tube, 3mm wall",
-  "TEXT-TO-CAD: ship hull fairing, loft through waterlines",
-  "TEXT-TO-CAD: impeller 7 blades, 120mm, bull nose hub",
-  "TEXT-TO-CAD: concrete anchor wedge, 12mm rebar",
-  "TEXT-TO-CAD: cam profile 45mm lift, dwell 60°",
-  "TEXT-TO-CAD: spring clip 0.4mm, 5mm travel",
-  "TEXT-TO-CAD: knurl 1.0mm pitch, 20mm long grip",
-  "TEXT-TO-CAD: o-ring groove 2.0 CS, 10mm ID housing",
-  "TEXT-TO-CAD: waffle grid infill, 20% visual density",
-  "TEXT-TO-CAD: living hinge, PP 0.5mm web",
-  "TEXT-TO-CAD: emboss logo 0.2mm, draft friendly",
-  "TEXT-TO-CAD: lattice strut, TPMS gyroid, 2mm unit cell",
-  "TEXT-TO-CAD: robot EE coupling ISO 9409-1-50-4-M6",
-  "TEXT-TO-CAD: bearing housing 6002-2RS, H7 fit",
-  "TEXT-TO-CAD: vise soft jaw, serrated 1.2mm pitch",
-  "TEXT-TO-CAD: spray nozzle, internal helix, 0.4mm orifice",
-  "TEXT-TO-CAD: drone canopy, 2mm FPV cam slot",
-  "TEXT-TO-CAD: ship prop guard, 9\" disc, 4 mounting holes",
-  "TEXT-TO-CAD: clock gear train, 1Hz escapement, brass",
-  "TEXT-TO-CAD: kelly knob M12, 25mm across flats",
-  "TEXT-TO-CAD: vacuum chamber O-ring 150mm, radial seal",
-  "TEXT-TO-CAD: 80/20 t-slot, 20 series, 4-hole corner cube",
-  "TEXT-TO-CAD: ESD tray pockets, 10×4 cells, 1mm draft",
-  "TEXT-TO-CAD: bicycle crank spider 110BCD, 5-arm",
-  "TEXT-TO-CAD: servo horn 25T, 3mm hub depth",
-  "TEXT-TO-CAD: shower drain hair trap, 2mm slot pattern",
-  "TEXT-TO-CAD: EV charging holster, Type 2, cable relief",
-  "TEXT-TO-CAD: lab jack platform 80×80, 12mm leadscrew",
+  "make me a 180mm water bottle, body about 64mm across, 1.2mm wall, export step",
+  "need an M6 grid of through holes, 40mm on center, 3mm steel",
+  "short DN50 flanged pipe, PN16, 200mm long please",
+  "ISO enter keyboard plate, 1.5mm, cherry cutouts",
+  "simple wine glass, stem 80mm, base should be stable",
+  "Lego 2x4 style brick, stud height like real lego",
+  "boss for M3 heat set insert, 5.2mm minor diameter",
+  "90 degree bracket, two flanges, 2mm 5052",
+  "drone frame arm for 5in props, 16x16 M3 stack mount",
+  "small carabiner style gate, 8mm body, 6061 is fine",
+  "loft a lamp shade profile I can revolve, ~220mm wide",
+  "spur gear module 1, 24 teeth, 20 degree pressure",
+  "snap fit tabs for a lid, about 0.6mm deflection",
+  "standoff M2.5, 8mm tall, for PCB",
+  "manifold 3/8 npt, three out ports, internal passages pls",
+  "hand wheel about 120mm, 8mm shaft with a flat",
+  "08B-1 sprocket 11T, with hub to pilot on a 20mm shaft",
+  "vacuum cup 40mm with a G1/4 boss on the side",
+  "bottle cage for a road bike, 64mm minimum hole spacing",
+  "decorative 6 petal rosette, 2mm fillet, mill from the top",
+  "strain relief for a usb cable, tpu, wall around 1mm",
+  "injection molding friendly housing, 2 deg draft on sides",
+  "optical post 12.7mm, 1/4-20 thread, 150mm tall",
+  "hollow 8x8mm tube link, 3mm wall, 90mm long",
+  "loft a fairing through these waterline sketches",
+  "impeller 7 blades, 120mm od, need a small bull nose",
+  "wedge anchor pocket for 12mm rebar, concrete",
+  "cam, 45mm total lift, long dwell in the high position",
+  "sheet metal spring clip, 0.4mm, 5mm of travel",
+  "knurled grip, 1mm pitch, 20mm long",
+  "o ring groove for 2mm cord section, 10mm id housing",
+  "infill as a lightweight waffle not solid",
+  "living hinge, pp, 0.5mm thinnest part",
+  "emboss our logo, 0.2mm, keep it moldable",
+  "tpms gyroid strut, 2mm cell if you can",
+  "tool flange per iso 9409-1, 50mm pattern, 4x M6",
+  "housing for a 6002 bearing, h7 on the od",
+  "soft jaws, serration about 1.2mm for a 4in vise",
+  "small spray nozzle, helix inside, 0.4mm orifice at tip",
+  "fpv drone canopy, slot for 19mm camera",
+  "prop guard for a 9in prop, 4 mounting holes on a 45mm pcd",
+  "clock gear train, escapement runs about 1Hz",
+  "M12 kelly, 25mm across the flats, 20mm long",
+  "o ring for a 150mm id vacuum port, groove on the lid",
+  "corner cube for 20 series 8020, 4 bolt pattern",
+  "esd tray, 10 by 4 pockets, 1mm draft in each pocket",
+  "110 bcd 5 arm crank spider, standard mtb offset",
+  "servo arm 25t spline, 3mm thick hub",
+  "shower drain cover, hair catch, 2mm slot grid",
+  "wall holster for a type2 ev plug, with cable loop",
+  "lab jack, 80x80 top plate, 12mm trapezoidal screw",
+  "phone stand, adjustable angle, print in pla",
+  "clamp for 12mm round tube, M5 bolt, quick release if possible",
+  "replacement hinge for a laptop, left side, 90mm knuckle spacing",
+  "ring light mount for a 15mm rail, 1/4 camera thread on top",
+  "simple drawer slide bracket for ikea 40cm cabinet",
+  "skateboard truck riser, 1/8in thick, 6 hole pattern",
+  "router template for 35mm cup hinge, euro style",
+  "plant pot with built in saucer, 180mm high, 6mm wall",
+  "car phone vent clip, tpu, fits vertical vanes 3-5mm",
+  "rc car wishbone, for 4mm ball studs, 85mm long eye to eye",
 ];
 
 function Hook01PromptBackdrop() {
@@ -158,24 +211,13 @@ function Hook01PromptBackdrop() {
     return Array(18).fill(run).join(" · ");
   }, []);
 
-  const maskStyle = useMemo((): CSSProperties => {
-    // Large, sharp-edged “hole” so prompt copy never peeks into the title zone; headline sits on a solid layer above.
-    const m =
-      "radial-gradient(ellipse min(96vw, 38rem) min(62dvh, 32rem) at 50% 50%, #000 0% 50%, #fff 50.2%)";
-    return {
-      WebkitMaskImage: m,
-      maskImage: m,
-    };
-  }, []);
-
   return (
     <div
       className="pointer-events-none absolute inset-0 z-[2] select-none overflow-hidden"
-      style={maskStyle}
       aria-hidden
     >
       <p
-        className="h-full w-full origin-center p-3 text-justify font-mono text-[0.45rem] leading-[1.55] text-muted-foreground/18 sm:text-[0.52rem] sm:leading-[1.5] sm:text-muted-foreground/16"
+        className="h-full w-full origin-center p-3 text-justify font-mono text-[0.5rem] leading-[1.5] text-foreground/20 sm:text-[0.58rem] sm:leading-[1.45] sm:text-foreground/18"
         style={{ wordBreak: "break-word", hyphens: "auto" }}
       >
         {longText}
@@ -193,41 +235,84 @@ export function Hook01Bam() {
         aria-hidden
       />
 
-      <div className="relative z-20 flex min-h-dvh w-full flex-col items-center justify-center px-3 py-10 sm:px-6 sm:py-12">
-        <div className="max-w-[min(100%,52rem)] rounded-[1.75rem] border border-border/50 bg-background px-5 py-6 shadow-sm sm:px-8 sm:py-8 md:px-10 md:py-9">
-          <div className="mb-3 flex w-full max-w-2xl flex-wrap items-center justify-center gap-x-4 gap-y-1 sm:mb-4 sm:gap-x-6">
-            {HOOK01_COMPETITORS.slice(0, 2).map((name) => (
-              <span
-                key={name}
-                className="font-mono text-[0.6rem] font-medium uppercase tracking-[0.2em] text-foreground/38 sm:text-[0.65rem] sm:tracking-[0.22em]"
-              >
-                {name}
-              </span>
-            ))}
+      <div
+        className="pointer-events-none absolute inset-0 z-[15] select-none"
+        aria-hidden
+      >
+        {HOOK01_COMPETITORS.map(({ label, place, src, primary, wordmark, name, invertImg }) => (
+          <div
+            key={label + src}
+            aria-label={label}
+            className={
+              primary
+                ? `${hookCompetitorPlate} absolute flex w-auto min-w-0 max-w-[min(92vw,15rem)] items-center gap-2 p-1.5 sm:max-w-[16rem] sm:gap-2.5 sm:p-2.5 ${
+                    name ? "h-auto min-h-[3.5rem] flex-row" : "h-16 min-w-[3.5rem] max-w-[min(28vw,5.5rem)] justify-center sm:h-[4.5rem] sm:max-w-[6rem]"
+                  }`
+                : wordmark
+                  ? `${hookCompetitorPlate} absolute flex h-11 w-auto min-w-0 max-w-[min(58vw,10.5rem)] items-center justify-center px-1.5 py-1 sm:h-12 sm:max-w-[11rem] sm:px-2`
+                  : `${hookCompetitorPlate} absolute flex h-12 w-12 shrink-0 items-center justify-center p-1.5 sm:h-14 sm:w-14 sm:p-2`
+            }
+            style={place}
+          >
+            {primary && name ? (
+              <>
+                <div className="shrink-0 overflow-hidden rounded-md bg-white p-0.5 sm:p-1">
+                  <img
+                    src={src}
+                    alt=""
+                    className="h-9 w-9 object-contain sm:h-11 sm:w-11"
+                    width={44}
+                    height={44}
+                    decoding="async"
+                    draggable={false}
+                    aria-hidden
+                  />
+                </div>
+                <span className="pr-0.5 font-outfit text-lg font-semibold leading-none tracking-tight text-foreground sm:text-xl">
+                  {name}
+                </span>
+              </>
+            ) : (
+              <img
+                src={src}
+                alt={label}
+                className={
+                  (invertImg ? "invert " : "") +
+                  (primary
+                    ? "h-12 w-12 object-contain sm:h-14 sm:w-14"
+                    : wordmark
+                      ? "h-8 w-auto max-w-full object-contain object-center sm:h-9"
+                      : "h-9 w-9 object-contain sm:h-11 sm:w-11")
+                }
+                width={primary ? 56 : wordmark ? 120 : 44}
+                height={primary ? 56 : wordmark ? 40 : 44}
+                decoding="async"
+                draggable={false}
+              />
+            )}
           </div>
+        ))}
+      </div>
 
-          <h1 className="max-w-[min(100%,52rem)] text-center">
-            <span className="block font-outfit text-2xl font-bold uppercase leading-[1.1] tracking-[0.06em] text-foreground sm:text-3xl sm:leading-tight sm:tracking-[0.05em] md:text-4xl md:tracking-[0.045em] lg:text-5xl">
-              Everyone and their mum is building
-            </span>
-            <span
-              className="mt-2 block font-outfit text-3xl font-extrabold uppercase leading-[1.02] tracking-[0.04em] text-highlight sm:mt-2.5 sm:text-4xl sm:tracking-[0.05em] md:mt-3 md:text-5xl md:leading-none md:tracking-[0.05em] lg:mt-3.5 lg:text-[2.9rem] lg:leading-none"
-              style={{ textShadow: "0 0 32px hsl(var(--highlight) / 0.12)" }}
-            >
-              text-to-cad
-              <span className="text-foreground/90">.</span>
-            </span>
-          </h1>
-
-          <div className="mt-3 flex w-full max-w-2xl flex-wrap items-center justify-center gap-x-4 gap-y-1 sm:mt-4 sm:gap-x-6">
-            {HOOK01_COMPETITORS.slice(2, 4).map((name) => (
-              <span
-                key={name}
-                className="font-mono text-[0.6rem] font-medium uppercase tracking-[0.2em] text-foreground/38 sm:text-[0.65rem] sm:tracking-[0.22em]"
-              >
-                {name}
+      <div className="relative z-20 flex min-h-dvh w-full flex-col items-center justify-center px-2 py-8 sm:px-5 sm:py-10">
+        <div className="max-w-[min(100%,52rem)] px-1 py-1.5 sm:px-2 sm:py-2">
+          <div className="relative z-10 mx-auto max-w-full text-center">
+            <h1 className="m-0 flex w-full max-w-full flex-col items-center gap-0">
+              <span className={`${hookHeadlinePlate} !pb-0`}>
+                <span className="font-outfit text-lg font-bold uppercase leading-none tracking-[0.05em] text-foreground [text-rendering:geometricPrecision] sm:text-xl">
+                  <span className="whitespace-nowrap">Everyone and their mum is building</span>
+                </span>
               </span>
-            ))}
+              <span className={`${hookHeadlinePlate} !pt-0`}>
+                <span
+                  className="font-outfit text-4xl font-extrabold uppercase leading-none tracking-[0.04em] text-highlight sm:text-5xl sm:tracking-[0.05em] md:text-6xl md:tracking-[0.05em] lg:text-[3.2rem] lg:tracking-[0.05em]"
+                  style={{ textShadow: "0 0 32px hsl(var(--highlight) / 0.12)" }}
+                >
+                  text-to-cad
+                  <span className="text-foreground/90">.</span>
+                </span>
+              </span>
+            </h1>
           </div>
         </div>
       </div>
@@ -270,11 +355,18 @@ export function Hook02Bottle() {
       <div className="hook-grid-48 pointer-events-none absolute inset-0" />
       <div className="relative z-[1] mx-auto flex w-full min-h-dvh max-w-6xl flex-1 flex-col px-4 py-3 sm:px-6 sm:py-5 md:py-6">
         <header className="text-center">
-          <p className="hook-stagger-0 font-jetbrains text-sm font-medium uppercase tracking-[0.4em] text-highlight">
-            BAM. Next.
-          </p>
-          <h2 className="hook-stagger-1 font-outfit mt-4 text-4xl font-bold uppercase leading-[1.05] tracking-tight text-foreground sm:text-5xl md:text-6xl">
-            But how do I model <GradText>this bottle</GradText>?
+          <h2 className="hook-stagger-0 m-0 flex w-full max-w-full flex-col items-center gap-2 sm:gap-1.5 md:gap-2">
+            <span className={hookHeadlinePlate}>
+              <span className="font-outfit text-3xl font-bold uppercase leading-[1.05] tracking-tight text-foreground sm:text-4xl md:text-5xl">
+                But how do I model
+              </span>
+            </span>
+            <span className={hookHeadlinePlate}>
+              <span className="font-outfit text-3xl font-bold uppercase leading-[1.05] tracking-tight sm:text-4xl md:text-5xl">
+                <GradText>this bottle</GradText>
+                <span className="text-foreground">?</span>
+              </span>
+            </span>
           </h2>
         </header>
 
@@ -292,8 +384,8 @@ export function Hook02Bottle() {
 
           <div className="flex min-h-[280px] flex-col items-center justify-center">
             <Hook02BottleSvg />
-            <p className="mt-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
-              One bottle.
+            <p className="mt-4 max-w-md text-balance text-center text-sm font-medium leading-snug text-muted-foreground sm:text-base">
+              A scan is worth a thousand words
             </p>
           </div>
 
@@ -301,28 +393,26 @@ export function Hook02Bottle() {
             <p className="mb-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
               Option B
             </p>
-            <PointCloud count={220} variant="slide2" />
+            <PointCloud count={300} variant="slide2" />
             <p className="font-outfit mt-4 text-xl font-semibold text-foreground">Scan it.</p>
             <p className="mt-1 text-center text-base leading-relaxed text-muted-foreground">
               Get a noisy point cloud. Now what?
             </p>
           </div>
         </div>
-
-        <p className="hook-footer-stuck mt-6 text-center text-lg italic leading-relaxed text-muted-foreground">
-          Either way, I&apos;m stuck.
-        </p>
       </div>
     </div>
   );
 }
 
 const HOOK3_BOTTLE_CLEAN = "hook-s3-bottle-clean";
-function AfterBottleParametric() {
+const hook3VizFrame = "mx-auto flex h-[220px] w-44 min-h-0 max-w-full shrink-0 items-center justify-center";
+
+function AfterBottleParametric({ className = "" }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 160 200"
-      className="mx-auto h-[220px] w-full max-w-[176px] shrink-0"
+      className={className}
       aria-hidden
     >
       <defs>
@@ -349,11 +439,17 @@ export function Hook03Cadabra() {
       <div className="hook-grid-48 pointer-events-none absolute inset-0" />
       <div className="relative z-[1] mx-auto flex w-full min-h-dvh max-w-7xl flex-1 flex-col px-4 py-3 sm:px-6 sm:py-5 md:py-6">
         <header className="text-center">
-          <p className="hook-s3-header-eyebrow font-jetbrains text-sm font-medium uppercase tracking-[0.4em] text-highlight">
-            ABRA · CAD · ABRA
-          </p>
-          <h2 className="hook-s3-header-title font-outfit mt-4 text-4xl font-bold uppercase leading-[1.05] tracking-tight text-foreground sm:text-5xl md:text-6xl">
-            Mess in. <GradText>Editable geometry</GradText> out.
+          <h2 className="hook-s3-header-title m-0 flex w-full max-w-full flex-col items-center gap-2 sm:gap-1.5 md:gap-2">
+            <span className={hookHeadlinePlate}>
+              <span className="font-outfit text-3xl font-bold uppercase leading-[1.05] tracking-tight text-foreground sm:text-4xl md:text-5xl">
+                Mess in.
+              </span>
+            </span>
+            <span className={hookHeadlinePlate}>
+              <span className="font-outfit text-3xl font-bold uppercase leading-[1.05] tracking-tight text-foreground sm:text-4xl md:text-5xl">
+                <GradText>Editable geometry</GradText> out.
+              </span>
+            </span>
           </h2>
         </header>
 
@@ -363,25 +459,29 @@ export function Hook03Cadabra() {
               <p className="mb-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-muted-foreground">
                 Before
               </p>
-              <div className="flex w-[128px] max-w-full justify-center">
-                <div className="w-[128px]">
-                  <PointCloud count={260} variant="slide3" className="h-auto w-full shrink-0" />
-                </div>
+              <div className={hook3VizFrame}>
+                <PointCloud count={260} variant="slide3" className="h-full w-full" />
               </div>
               <p className="mt-3 text-center text-base leading-relaxed text-muted-foreground">Noisy point cloud.</p>
             </div>
           </div>
 
-          <div className="hook-s3-arrow flex flex-col items-center justify-center gap-2 py-2 lg:col-span-1">
-            <p className="font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-highlight">CADabra</p>
-            <svg width="42" height="20" viewBox="0 0 42 20" className="text-highlight" aria-hidden>
+          <div className="hook-s3-arrow flex min-w-0 flex-col items-center justify-center gap-1 py-2 lg:col-span-1">
+            <p className="inline-flex flex-wrap items-baseline justify-center gap-x-0 text-center font-outfit text-2xl font-bold leading-none tracking-[-0.02em] text-foreground sm:text-3xl md:text-4xl">
+              <CadabraCadLockup
+                cadLetterClassName="font-outfit text-2xl font-bold leading-none tracking-[-0.02em] text-foreground sm:text-3xl md:text-4xl"
+              />
+              <GradText>abra</GradText>
+            </p>
+            <svg width="52" height="24" viewBox="0 0 42 20" className="text-highlight" aria-hidden>
               <path
                 d="M2 10 L40 10 M32 4 L40 10 L32 16"
                 className="stroke-current"
-                strokeWidth="2"
+                strokeWidth="2.2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 fill="none"
+                vectorEffect="non-scaling-stroke"
               />
             </svg>
           </div>
@@ -389,16 +489,19 @@ export function Hook03Cadabra() {
           <div className="hook-s3-after flex justify-center lg:col-span-5">
             <div className={`w-full max-w-md ${hookPanel}`}>
               <p className="mb-4 font-jetbrains text-xs font-medium uppercase tracking-[0.3em] text-highlight">After</p>
-              <div className="flex justify-center">
-                <AfterBottleParametric />
+              <div className={hook3VizFrame}>
+                <AfterBottleParametric className="h-full w-full" />
               </div>
               <p className="mt-3 text-center text-base leading-relaxed text-foreground/90">Editable parametric CAD.</p>
             </div>
           </div>
         </div>
 
-        <p className="hook-s3-footer mt-5 text-center text-lg leading-relaxed text-muted-foreground">
-          472 hours saved per year per engineer.
+        <p className="hook-s3-footer mt-6 text-balance text-center text-base leading-relaxed sm:text-lg">
+          <span className="font-outfit text-2xl font-extrabold uppercase tabular-nums tracking-tight text-highlight sm:text-3xl md:text-4xl">
+            472 hours
+          </span>
+          <span className="text-muted-foreground"> saved per year per engineer.</span>
         </p>
       </div>
     </div>
