@@ -1700,7 +1700,7 @@ function PhaseNarration({ stage, elapsed }: { stage: Stage; elapsed: number }) {
   const active = steps[activeIdx];
 
   return (
-    <div className="pointer-events-none absolute left-6 top-1/2 z-20 w-[460px] max-w-[44vw] -translate-y-1/2 sm:left-8 md:left-10">
+    <div className="pointer-events-none absolute left-2 top-1/2 z-20 w-[min(22rem,92vw)] max-w-[460px] -translate-y-1/2 sm:left-6 sm:w-[min(24rem,88vw)] md:left-9 lg:left-10">
       {/* Single line, flip transition. The wrapper preserves vertical
           space so the layout doesn't jump while the line is mid-flip. */}
       <div
@@ -1805,7 +1805,7 @@ const Workflow = () => {
           })();
 
   return (
-    <main className="relative flex h-screen w-full flex-col overflow-hidden stage-bg text-foreground">
+    <main className="relative flex h-screen-dvh min-h-0 w-full flex-col overflow-hidden stage-bg text-foreground site-pad-bottom">
       {/* Faint blueprint grid backdrop */}
       <div
         aria-hidden
@@ -1822,28 +1822,28 @@ const Workflow = () => {
       />
 
       {/* Top bar */}
-      <header className="relative z-10 flex flex-shrink-0 items-center justify-between px-8 py-3">
+      <header className="site-gutter-x relative z-10 flex flex-shrink-0 items-center justify-between py-2.5 sm:py-3">
         <Link
           to="/"
-          className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          className="inline-flex min-h-10 min-w-10 items-center justify-center gap-1.5 rounded-lg text-sm font-medium text-muted-foreground -ml-1 px-0.5 transition-colors hover:text-foreground sm:min-h-0 sm:min-w-0 sm:justify-start sm:rounded-none"
         >
-          <ArrowLeft className="h-4 w-4" strokeWidth={1.8} />
-          Back
+          <ArrowLeft className="h-4 w-4 shrink-0" strokeWidth={1.8} />
+          <span>Back</span>
         </Link>
         <div>
-          <span className="font-wordmark text-3xl font-bold tracking-[-0.02em] text-foreground">
+          <span className="font-wordmark text-[length:clamp(1.35rem,calc(0.5rem+1.1vw),1.85rem)] font-bold leading-none tracking-[-0.02em] text-foreground sm:text-3xl">
             CAD
           </span>
-          <span className="font-wordmark text-3xl font-light italic tracking-[-0.02em] text-foreground/80">
+          <span className="font-wordmark text-[length:clamp(1.35rem,calc(0.5rem+1.1vw),1.85rem)] font-light italic leading-none tracking-[-0.02em] text-foreground/80 sm:text-3xl">
             abra
           </span>
         </div>
         {/* Right slot left intentionally empty — kept for layout balance */}
-        <span aria-hidden className="w-[60px]" />
+        <span aria-hidden className="w-10 min-[480px]:w-[3.25rem] sm:w-[3.75rem]" />
       </header>
 
       {/* Main column: viewport + loading bar — flexes to fill remaining height */}
-      <section className="relative z-10 mx-auto mt-1 flex w-full max-w-[1400px] flex-1 min-h-0 flex-col px-4 pb-3">
+      <section className="site-gutter-x relative z-10 mx-auto mt-1 flex w-full max-w-[min(100%,87.5rem)] flex-1 min-h-0 flex-col pb-2 sm:pb-3 2xl:max-w-[min(100%,96rem)]">
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="relative flex-1 min-h-0 overflow-hidden">
 
@@ -1852,22 +1852,24 @@ const Workflow = () => {
                 paragraph aligns with the upload button. */}
             {stage === 0 && (
               <div className="absolute inset-0 animate-fade-in">
-                <div className="flex h-full w-full items-stretch justify-center px-8 py-8 md:px-12 md:py-10">
+                <div className="flex h-full w-full items-stretch justify-center px-3 py-6 sm:px-5 sm:py-8 md:px-8 md:py-8 lg:px-10 lg:py-10">
                   <div
-                    className="grid h-full w-full max-w-[920px]"
+                    className="grid h-full w-full min-h-0 max-w-[920px] grid-cols-1 gap-y-8 md:grid-cols-2 md:gap-y-0"
                     style={{
-                      gridTemplateColumns: "1fr 1fr",
-                      columnGap: "1.5rem",
+                      columnGap: "min(1.5rem, 3vw)",
                     }}
                   >
                     {/* LEFT — Title + description, both nudged downward
                         and inset toward the center. */}
-                    <div className="flex h-full min-h-0 flex-col items-center pl-6 pt-16">
+                    <div className="order-2 flex h-full min-h-0 flex-col items-center pl-0 pt-4 sm:pl-2 md:order-1 md:pl-4 md:pt-10 lg:pl-5 lg:pt-16">
                       <div className="w-full">
                         <ScanToCadTitle className="text-foreground" />
                       </div>
-                      <div className="mt-6 flex w-full justify-center">
-                        <div style={{ width: "100%", maxWidth: 360, height: 320 }}>
+                      <div className="mt-4 flex w-full justify-center sm:mt-5 md:mt-6">
+                        <div
+                          className="w-full max-w-[22.5rem] sm:max-w-[20rem] md:max-w-[18rem] lg:max-w-[20rem] xl:max-w-[22.5rem]"
+                          style={{ height: "min(50vh, 20rem, 320px)" }}
+                        >
                           <CanvasReflowText
                             text="Drop in a raw .ply point cloud, the messy noisy swarm of 3D dots a scanner spits out after capturing a real object. CADabra cleans it up: it strips out stray points, smooths the surface, and stitches the dots into a watertight triangle mesh that actually looks like the thing you scanned. Then it spins the model into six clean orthographic views (front, back, left, right, top, bottom), the exact projections an engineer needs to rebuild the part in CAD."
                             lineHeight={22}
@@ -1882,8 +1884,8 @@ const Workflow = () => {
 
                     {/* RIGHT — Brick + upload, nudged slightly higher
                         and inset toward the center. */}
-                    <div className="flex h-full min-h-0 flex-col items-center pr-6">
-                      <div className="relative mx-auto min-h-0 flex-1 w-full max-w-[520px] -translate-y-3">
+                    <div className="order-1 flex h-full min-h-[min(50vh,22rem)] flex-col items-center pr-0 sm:pr-2 md:order-2 md:min-h-0 md:pr-4 md:pt-0 lg:pr-5">
+                      <div className="relative mx-auto min-h-0 w-full max-w-[min(32rem,92vw)] flex-1 -translate-y-0 sm:-translate-y-1 md:max-w-[520px] md:-translate-y-3">
                         <LegoPodiumScene />
                       </div>
                       <div className="-mt-10 flex w-full flex-col items-center gap-3" />
@@ -1892,7 +1894,7 @@ const Workflow = () => {
                   <div className="pointer-events-none absolute inset-x-0 bottom-8 z-10 flex flex-col items-center gap-3">
                     <button
                       onClick={() => setStage(1)}
-                      className="pointer-events-auto group inline-flex items-center gap-2.5 rounded-full bg-white px-10 py-5 text-base font-semibold uppercase tracking-[0.18em] text-black shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-xl"
+                      className="pointer-events-auto group inline-flex w-full max-w-xs items-center justify-center gap-2.5 rounded-full bg-white px-6 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-black shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-xl sm:max-w-md sm:px-8 sm:py-4 sm:text-base md:w-auto md:max-w-none md:px-10 md:py-5"
                     >
                       <Upload className="h-4 w-4" strokeWidth={1.8} />
                       UPLOAD POINT CLOUD
@@ -1987,13 +1989,13 @@ const Workflow = () => {
 
             {/* Stage 5 — split: vertical depth column on the left, mesh shifts right */}
             {stage === 5 && (
-              <div className="absolute inset-0 flex animate-fade-in">
+              <div className="absolute inset-0 flex min-h-0 flex-col md:flex-row animate-fade-in">
                 {/* LEFT: vertical column of orthographic depth placeholders */}
-                <div className="flex w-[34%] min-w-[240px] max-w-[340px] items-center justify-center px-6 py-6">
+                <div className="flex w-full min-w-0 max-h-[38vh] items-center justify-center border-b border-border/40 px-4 py-3 sm:max-h-[40vh] md:w-[34%] md:min-h-0 md:max-h-none md:min-w-[240px] md:max-w-[340px] md:border-b-0 md:px-6 md:py-6">
                   <DepthColumn />
                 </div>
                 {/* RIGHT: rotating mesh slides into place + Next button */}
-                <div className="mesh-shift-right relative flex flex-1 items-center justify-center">
+                <div className="mesh-shift-right relative flex min-h-0 flex-1 items-center justify-center max-md:min-h-[45vh]">
                   <Canvas
                     dpr={[1, 2]}
                     camera={{ position: [0, 2.6, 8.6], fov: 38 }}
