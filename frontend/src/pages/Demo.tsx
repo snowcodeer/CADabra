@@ -42,6 +42,7 @@ const Index = () => {
         >
           <CadabraCadLockup
             cadLetterClassName="font-wordmark text-[length:clamp(1.75rem,calc(1.1rem+1.2vw),2.4rem)] font-bold leading-none tracking-[-0.02em] bg-gradient-to-br from-foreground via-foreground to-foreground/60 bg-clip-text text-transparent [text-shadow:0_1px_0_rgba(0,0,0,0.04)]"
+            logoWrapperClassName="inline-block shrink-0 [aspect-ratio:352/402] h-[1.5cap] w-auto translate-y-[2px] align-baseline [font:inherit]"
           />
           <span
             className="font-wordmark text-[length:clamp(1.75rem,calc(1.1rem+1.2vw),2.4rem)] font-light italic leading-none tracking-[-0.02em] text-foreground/80"
