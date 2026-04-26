@@ -39,9 +39,9 @@ export const cursorCharacter: CursorCharacterState = {
   drawSize: 0,
   flipScale: 1,
   tilt: 0,
-  // Keep defaults aligned with CursorCharacter's runtime pivot.
-  pivotX: 0.632,
-  pivotY: 0.312,
+  // Match `CursorCharacter`: Nut layer center in wrench Lottie comp (1237×696).
+  pivotX: 838.5 / 1237,
+  pivotY: 239 / 696,
   redrawProfile: null,
   profileCanvas: null,
   profileDrawSize: 0,
