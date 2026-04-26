@@ -424,12 +424,14 @@ export function Scene({ compareMode = false, onAnalysis }: SceneProps) {
     ? { pos: [1.6, 0, 0] as [number, number, number], scale: 1.05, opacity: 1 }
     : { pos: [3.8, 0, 0] as [number, number, number], scale: 0.96, opacity: 1 };
   // Camera glide targets. In normal view the camera sits back to frame all
-  // three podiums; in compare mode it drops lower AND looks higher so the
-  // two remaining podiums (Generated CAD left, Ground Truth right) sit well
-  // ABOVE the bottom analysis panel rather than being hidden behind it.
-  const lookTarget: [number, number, number] = compareMode ? [0, 2.2, 0] : [0, 0.1, 0];
+  // three podiums; in compare mode it moves lower + farther back and aims
+  // nearer the podiums' mesh band so both objects stay fully in frame (tall
+  // brick + labels). Look Y stays in a range that still clears the on-page
+  // analysis panel by keeping the frustum a bit more level than looking
+  // straight down.
+  const lookTarget: [number, number, number] = compareMode ? [0, 0.85, 0] : [0, 0.1, 0];
   const cameraTarget: [number, number, number] = compareMode
-    ? [0, 2.8, 13.5]
+    ? [0, 2.15, 14.6]
     : [0, 4.2, 10.5];
 
   return (

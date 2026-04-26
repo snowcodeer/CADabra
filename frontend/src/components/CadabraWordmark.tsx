@@ -1,10 +1,10 @@
 /**
  * Renders “CAD” with the capital A replaced by the brand mark (public/logo.png).
  * Outer + logo wrapper use `cadLetterClassName` for font metrics so the mark can use
- * `1cap` (true cap height) to match the uppercase C and D.
+ * Slightly above `1cap` so the hat reads a touch larger than C/D (can overhang).
  */
 const LOGO_WRAPPER =
-  "inline-block shrink-0 [aspect-ratio:352/402] h-[1cap] w-auto translate-y-[1.5px] align-baseline [font:inherit]";
+  "inline-block shrink-0 [aspect-ratio:352/402] h-[1.2cap] w-auto translate-y-[1.5px] align-baseline [font:inherit]";
 const LOGO_IMG = "h-full w-full object-contain [image-rendering:-webkit-optimize-contrast]";
 
 export function CadabraCadLockup({

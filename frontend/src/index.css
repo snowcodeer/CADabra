@@ -601,22 +601,36 @@
   animation-fill-mode: both;
 }
 
-/* Research cards: final transform lives in inline style; animation is opacity only (no position jump on image load) */
+/* Research cards: one-after-another "slap" in from up/right into stored final pose (uses --paper-y / --paper-r) */
 @keyframes research-slap {
   0% {
     opacity: 0;
+    transform: translateY(calc(var(--paper-y, 0px) - 48px)) translateX(2.5rem) rotate(calc(var(--paper-r, 0deg) - 14deg)) scale(0.88);
   }
   100% {
     opacity: 1;
+    transform: translateY(var(--paper-y, 0px)) translateX(0) rotate(var(--paper-r, 0deg)) scale(1);
   }
 }
+.research-slap-pending {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(calc(var(--paper-y, 0px) - 48px)) translateX(2.5rem) rotate(calc(var(--paper-r, 0deg) - 14deg)) scale(0.88);
+}
 .research-slap-in {
-  animation: research-slap 0.4s ease-out forwards;
   pointer-events: auto;
+  animation: research-slap 0.48s cubic-bezier(0.2, 0.85, 0.2, 1) both;
+  animation-delay: var(--slap-delay, 0s);
+  /* Only animate shadow on hover, not transform (keeps end-of-animation pose) */
+  transition: box-shadow 0.2s ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
+  .research-slap-pending,
   .research-slap-in {
     animation: none;
+    pointer-events: auto;
+    transition: none;
     opacity: 1;
+    transform: translateY(var(--paper-y, 0px)) translateX(0) rotate(var(--paper-r, 0deg)) scale(1);
   }
 }
