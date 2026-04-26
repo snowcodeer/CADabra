@@ -5,7 +5,7 @@ import {
   type PreparedTextWithSegments,
   type LayoutCursor,
 } from "@chenglou/pretext";
-import { cursorCharacter } from "@/components/cursor/cursorCharacter";
+import { cursorCharacter } from "@/components/cursor/cursorCharacterState";
 
 /**
  * Canvas-rendered paragraph that flows around the live `CursorCharacter`

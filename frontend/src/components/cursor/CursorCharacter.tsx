@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import lottie, { type AnimationItem } from "lottie-web";
 import wrenchLottie from "@/assets/wrench-turning.lottie.json";
-import { cursorCharacter } from "./cursorCharacter";
+import { cursorCharacter } from "./cursorCharacterState";
 
 /**
  * Global, full-viewport canvas overlay that renders a Lottie-driven
