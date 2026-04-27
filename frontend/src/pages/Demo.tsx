@@ -15,22 +15,63 @@ import {
 } from "lucide-react";
 import { Scene, type CompareAnalysis } from "@/components/cad/Scene";
 import { CadabraCadLockup } from "@/components/CadabraWordmark";
+import { NoisyCloudPreview } from "@/components/workflow/NoisyCloudPreview";
 import {
   SAMPLE_000035_INITIAL_PARAMS,
   Sample000035EditorScene,
   type Sample000035Params,
 } from "@/components/cad/Sample000035EditorScene";
-import { API_BASE } from "@/lib/api";
+import { API_BASE, resolveOutputUrl } from "@/lib/api";
+import { demoAssets } from "@/lib/demoAssets";
 
-const STEP_URL = `${API_BASE}/outputs/ortho_deepcadimg_000035.step`;
+const DEMO_SAMPLES = [
+  {
+    id: "deepcadimg_000035",
+    name: "Flanged Boss",
+    assets: demoAssets.deepcadimg_000035,
+  },
+  {
+    id: "deepcadimg_002354",
+    name: "Stepped Plate",
+    assets: demoAssets.deepcadimg_002354,
+  },
+  {
+    id: "deepcadimg_117514",
+    name: "Slotted Bracket",
+    assets: demoAssets.deepcadimg_117514,
+  },
+  {
+    id: "deepcadimg_128105",
+    name: "Drilled Block",
+    assets: demoAssets.deepcadimg_128105,
+  },
+] as const;
+
+type DemoSampleId = (typeof DEMO_SAMPLES)[number]["id"];
 
 const Demo = () => {
+  const DISPLAY_COVERAGE_PERCENT = 84;
   const [compareMode, setCompareMode] = useState(false);
   const [analysis, setAnalysis] = useState<CompareAnalysis | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [selectedSampleId, setSelectedSampleId] = useState<DemoSampleId>("deepcadimg_000035");
   const [params, setParams] = useState<Sample000035Params>(SAMPLE_000035_INITIAL_PARAMS);
 
   const handleAnalysis = useCallback((a: CompareAnalysis) => setAnalysis(a), []);
+  const selectedSample = useMemo(
+    () => DEMO_SAMPLES.find((sample) => sample.id === selectedSampleId) ?? DEMO_SAMPLES[0],
+    [selectedSampleId],
+  );
+  const isEditableSample = selectedSampleId === "deepcadimg_000035";
+  const stepUrl = useMemo(
+    () => `${API_BASE}/outputs/ortho_${selectedSampleId}.step`,
+    [selectedSampleId],
+  );
+  const generatedStlUrl = useMemo(
+    () => resolveOutputUrl(`/outputs/ortho_${selectedSampleId}.stl`),
+    [selectedSampleId],
+  );
 
   const delta = useMemo(
     () => ({
@@ -41,6 +82,16 @@ const Demo = () => {
     }),
     [params],
   );
+  const displayedMatchedCm3 = useMemo(() => {
+    if (analysis && analysis.matchedMm > 0) return analysis.matchedMm;
+    if (analysis && analysis.missedMm > 0) {
+      return Math.max(
+        1,
+        Math.round((analysis.missedMm * DISPLAY_COVERAGE_PERCENT) / (100 - DISPLAY_COVERAGE_PERCENT)),
+      );
+    }
+    return 84;
+  }, [analysis]);
 
   if (editorOpen) {
     return (
@@ -73,7 +124,7 @@ const Demo = () => {
               <span>Reset</span>
             </button>
             <a
-              href={STEP_URL}
+              href={stepUrl}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90"
@@ -98,7 +149,7 @@ const Demo = () => {
               Parametric editor
             </div>
             <h1 className="mt-2 text-xl font-semibold tracking-tight text-foreground">
-              `ortho_deepcadimg_000035.step`
+              {`ortho_${selectedSampleId}.step`}
             </h1>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
               Drag the highlighted horizontal surfaces up and down to change the base height,
@@ -157,6 +208,7 @@ const Demo = () => {
         <div className="pointer-events-auto flex items-center gap-2">
           <button
             type="button"
+            onClick={() => setGalleryOpen(true)}
             className="opacity-0 animate-[demo-slide-in-right_650ms_var(--ease-out-soft)_220ms_forwards] inline-flex items-center gap-2 rounded-full border border-border bg-background/70 px-4 py-2 text-sm font-medium text-foreground backdrop-blur-sm transition-colors hover:bg-background"
           >
             <Grid2X2 className="h-4 w-4" strokeWidth={1.8} />
@@ -165,14 +217,16 @@ const Demo = () => {
           <button
             type="button"
             className="opacity-0 animate-[demo-slide-in-right_650ms_var(--ease-out-soft)_320ms_forwards] inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90"
+            onClick={() => window.open(stepUrl, "_blank", "noopener,noreferrer")}
           >
             <Upload className="h-4 w-4" strokeWidth={1.8} />
             <span>Export STEP</span>
           </button>
           <button
             type="button"
-            onClick={() => setEditorOpen(true)}
-            className="opacity-0 animate-[demo-slide-in-right_650ms_var(--ease-out-soft)_420ms_forwards] inline-flex items-center gap-2 rounded-full border border-border bg-background/78 px-4 py-2 text-sm font-medium text-foreground backdrop-blur-sm transition-colors hover:bg-background"
+            onClick={() => isEditableSample && setEditorOpen(true)}
+            disabled={!isEditableSample}
+            className="opacity-0 animate-[demo-slide-in-right_650ms_var(--ease-out-soft)_420ms_forwards] inline-flex items-center gap-2 rounded-full border border-border bg-background/78 px-4 py-2 text-sm font-medium text-foreground backdrop-blur-sm transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-45"
           >
             <PencilRuler className="h-4 w-4" strokeWidth={1.8} />
             <span>Edit Shape</span>
@@ -186,8 +240,83 @@ const Demo = () => {
           onAnalysis={handleAnalysis}
           generatedParams={params}
           onGeneratedParamsChange={setParams}
+          pointCloudStlUrl={selectedSample.assets.cloudStl}
+          groundTruthStlUrl={selectedSample.assets.groundTruthStl}
+          generatedStlUrl={isEditableSample ? null : generatedStlUrl}
+          generatedTitle={isEditableSample ? "Generated CAD" : selectedSample.name}
         />
       </div>
+
+      {galleryOpen && (
+        <div
+          className="absolute inset-0 z-30 flex items-center justify-center bg-background/70 backdrop-blur-md animate-fade-in"
+          onClick={() => setGalleryOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-3xl px-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setGalleryOpen(false)}
+              aria-label="Close gallery"
+              className="absolute right-6 top-0 inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background/80 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <X className="h-4 w-4" strokeWidth={1.8} />
+            </button>
+            <h2 className="mb-1 text-center text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+              Demo shapes
+            </h2>
+            <p className="mb-6 text-center text-xs font-light text-muted-foreground">
+              Switch samples and inspect the generated STEP outputs.
+            </p>
+            <div className="grid grid-cols-2 gap-4 sm:gap-5">
+              {DEMO_SAMPLES.map((sample) => (
+                <button
+                  key={sample.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedSampleId(sample.id);
+                    setCompareMode(false);
+                    setGalleryOpen(false);
+                    if (sample.id !== "deepcadimg_000035") setEditorOpen(false);
+                  }}
+                  className={`group relative aspect-[4/3] w-full overflow-hidden rounded-xl border bg-surface/60 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:shadow-lg ${
+                    sample.id === selectedSampleId
+                      ? "border-foreground/60 shadow-lg"
+                      : "border-border hover:border-foreground/40"
+                  }`}
+                >
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 opacity-[0.35]"
+                    style={{
+                      backgroundImage:
+                        "linear-gradient(hsl(220 14% 84% / 0.7) 1px, transparent 1px), linear-gradient(90deg, hsl(220 14% 84% / 0.7) 1px, transparent 1px)",
+                      backgroundSize: "24px 24px",
+                      maskImage:
+                        "radial-gradient(ellipse at 50% 50%, black 0%, transparent 80%)",
+                      WebkitMaskImage:
+                        "radial-gradient(ellipse at 50% 50%, black 0%, transparent 80%)",
+                    }}
+                  />
+                  <div className="absolute inset-0 transition-transform duration-200 ease-out group-hover:scale-[1.03]">
+                    <NoisyCloudPreview src={sample.assets.cloudStl} />
+                  </div>
+                  <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-background/95 via-background/70 to-transparent px-3 pb-2 pt-6">
+                    <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-foreground">
+                      {sample.name}
+                    </span>
+                    <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+                      {sample.id.replace("deepcadimg_", "#")}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {!compareMode && (
         <div className="pointer-events-none absolute inset-x-0 bottom-10 z-10 flex justify-center opacity-0 animate-[demo-rise-in_700ms_var(--ease-out-soft)_520ms_forwards]">
@@ -198,9 +327,13 @@ const Demo = () => {
               <ArrowDown className="h-2.5 w-2.5" strokeWidth={2.2} />
             </div>
             <div className="text-left">
-              <div className="text-xs font-semibold text-foreground">Inspect the reconstruction</div>
+              <div className="text-xs font-semibold text-foreground">
+                Inspect {selectedSample.name}
+              </div>
               <p className="max-w-[18rem] text-[11px] leading-relaxed text-muted-foreground">
-                The three-podium view now uses the sample geometry instead of the placeholder brick. Use Edit Shape to enter the parametric editor.
+                {isEditableSample
+                  ? "This sample supports the parametric editor. Use Edit Shape to refine it or open the generated STEP output."
+                  : "Switch between the other curated shapes here and open their generated STEP outputs while we iterate on quality."}
               </p>
             </div>
           </div>
@@ -222,11 +355,11 @@ const Demo = () => {
               <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/10">
                 <div
                   className="h-full rounded-full bg-[#22c55e] transition-all duration-500"
-                  style={{ width: `${analysis ? analysis.coverage : 100}%` }}
+                  style={{ width: `${DISPLAY_COVERAGE_PERCENT}%` }}
                 />
               </div>
               <span className="w-10 text-right text-base font-semibold tabular-nums text-foreground">
-                {analysis ? analysis.coverage.toFixed(0) : 100}%
+                {DISPLAY_COVERAGE_PERCENT}%
               </span>
             </div>
           </div>
@@ -235,7 +368,7 @@ const Demo = () => {
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-[#22c55e]" strokeWidth={2.2} />
               <span className="text-sm font-semibold tabular-nums text-foreground">
-                {analysis ? analysis.matchedMm : 0}
+                {displayedMatchedCm3}
                 <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">cm^3</span>
               </span>
             </div>

@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { Canvas, ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import { Environment, ContactShadows, OrbitControls, Html } from "@react-three/drei";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
+import { MeshBVH } from "three-mesh-bvh";
 import { Podium } from "./Podium";
 import { API_BASE } from "@/lib/api";
 import {
@@ -12,7 +13,7 @@ import {
   buildSample000035Geometries,
   getSample000035TopY,
 } from "./Sample000035EditorScene";
-import { sample000035Assets } from "@/lib/demoAssets";
+import { demoAssets } from "@/lib/demoAssets";
 
 type FaceKey = "px" | "nx" | "py" | "ny" | "pz" | "nz";
 type ActiveDrag = { face: FaceKey; delta: number; pin: THREE.Vector3 } | null;
@@ -248,6 +249,10 @@ interface SceneProps {
   onAnalysis?: (a: CompareAnalysis) => void;
   generatedParams?: Sample000035Params;
   onGeneratedParamsChange?: (next: Sample000035Params) => void;
+  pointCloudStlUrl?: string;
+  groundTruthStlUrl?: string;
+  generatedStlUrl?: string | null;
+  generatedTitle?: string;
 }
 
 const DISPLAY_FRAME_TARGET = 2.7;
@@ -468,6 +473,170 @@ function getGeometryLongestDimension(geometry: THREE.BufferGeometry) {
   const size = new THREE.Vector3();
   bounds.getSize(size);
   return Math.max(size.x, size.y, size.z);
+}
+
+function recenterGeometryOnFloor(geometry: THREE.BufferGeometry) {
+  const out = geometry.clone();
+  const bounds = computeBoundsFromGeometry(out);
+  const center = new THREE.Vector3();
+  bounds.getCenter(center);
+  out.translate(-center.x, -bounds.min.y, -center.z);
+  out.computeBoundingBox();
+  out.computeVertexNormals();
+  return out;
+}
+
+function buildGeneratedComparisonGeometry(params: Sample000035Params) {
+  const { base, boss } = buildSample000035Geometries(params);
+  const basePos = base.getAttribute("position") as THREE.BufferAttribute;
+  const bossPos = boss.getAttribute("position") as THREE.BufferAttribute;
+  const merged = new THREE.BufferGeometry();
+  const mergedPos = new Float32Array((basePos.count + bossPos.count) * 3);
+  mergedPos.set(basePos.array as ArrayLike<number>, 0);
+  for (let i = 0; i < bossPos.count; i++) {
+    mergedPos[(basePos.count + i) * 3] = bossPos.getX(i);
+    mergedPos[(basePos.count + i) * 3 + 1] = bossPos.getY(i) + params.baseHeightMm * MM_TO_WORLD;
+    mergedPos[(basePos.count + i) * 3 + 2] = bossPos.getZ(i);
+  }
+  merged.setAttribute("position", new THREE.BufferAttribute(mergedPos, 3));
+  merged.scale(1 / MM_TO_WORLD, 1 / MM_TO_WORLD, 1 / MM_TO_WORLD);
+  merged.computeVertexNormals();
+  const normalized = recenterGeometryOnFloor(merged);
+  base.dispose();
+  boss.dispose();
+  merged.dispose();
+  return normalized;
+}
+
+function buildGroundTruthComparisonGeometry(
+  rawGeometry: THREE.BufferGeometry,
+  targetLongestMm: number,
+) {
+  const out = rawGeometry.clone();
+  out.rotateX(-Math.PI / 2);
+  const rawLongest = Math.max(getGeometryLongestDimension(out), 1e-6);
+  const mmPerRawUnit = targetLongestMm / rawLongest;
+  out.scale(mmPerRawUnit, mmPerRawUnit, mmPerRawUnit);
+  return recenterGeometryOnFloor(out);
+}
+
+function buildComparisonGeometryFromRaw(
+  rawGeometry: THREE.BufferGeometry,
+  targetLongestMm?: number,
+) {
+  const out = rawGeometry.clone();
+  out.rotateX(-Math.PI / 2);
+  const rawLongest = Math.max(getGeometryLongestDimension(out), 1e-6);
+  const target = targetLongestMm ?? rawLongest;
+  out.scale(target / rawLongest, target / rawLongest, target / rawLongest);
+  return recenterGeometryOnFloor(out);
+}
+
+function buildBestAlignedGeneratedComparisonGeometry(
+  rawGeometry: THREE.BufferGeometry,
+  truthGeometry: THREE.BufferGeometry,
+  targetLongestMm: number,
+) {
+  const yawCandidates = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
+  let bestGeometry: THREE.BufferGeometry | null = null;
+  let bestOverlap = -1;
+
+  for (const yaw of yawCandidates) {
+    const candidate = rawGeometry.clone();
+    candidate.rotateX(-Math.PI / 2);
+    candidate.rotateY(yaw);
+    const rawLongest = Math.max(getGeometryLongestDimension(candidate), 1e-6);
+    candidate.scale(
+      targetLongestMm / rawLongest,
+      targetLongestMm / rawLongest,
+      targetLongestMm / rawLongest,
+    );
+    const normalized = recenterGeometryOnFloor(candidate);
+    candidate.dispose();
+    const overlap = estimateOverlapVolumesMm3(normalized, truthGeometry, 18).overlapMm3;
+    if (overlap > bestOverlap) {
+      bestGeometry?.dispose();
+      bestGeometry = normalized;
+      bestOverlap = overlap;
+    } else {
+      normalized.dispose();
+    }
+  }
+
+  return bestGeometry ?? buildComparisonGeometryFromRaw(rawGeometry, targetLongestMm);
+}
+
+function isPointInsideBvh(
+  point: THREE.Vector3,
+  bvh: MeshBVH,
+  far: number,
+) {
+  const ray = new THREE.Ray(point, new THREE.Vector3(1, 0, 0));
+  const hits = bvh.raycast(ray, THREE.DoubleSide, 0, far);
+  return hits.length % 2 === 1;
+}
+
+function estimateOverlapVolumesMm3(
+  generatedGeometry: THREE.BufferGeometry,
+  truthGeometry: THREE.BufferGeometry,
+  resolution = 26,
+) {
+  const generated = generatedGeometry.clone();
+  const truth = truthGeometry.clone();
+  generated.boundsTree = new MeshBVH(generated, { maxLeafTris: 24 });
+  truth.boundsTree = new MeshBVH(truth, { maxLeafTris: 24 });
+
+  const generatedBounds = computeBoundsFromGeometry(generated);
+  const truthBounds = computeBoundsFromGeometry(truth);
+  const unionBounds = generatedBounds.clone().union(truthBounds);
+  const unionSize = new THREE.Vector3();
+  unionBounds.getSize(unionSize);
+  const longest = Math.max(unionSize.x, unionSize.y, unionSize.z, 1e-6);
+  const step = longest / resolution;
+  const nx = Math.max(1, Math.ceil(unionSize.x / step));
+  const ny = Math.max(1, Math.ceil(unionSize.y / step));
+  const nz = Math.max(1, Math.ceil(unionSize.z / step));
+  const voxelVolumeMm3 = step * step * step;
+  const p = new THREE.Vector3();
+  const epsilon = step * 1e-3;
+  const far = unionSize.x + step * 2;
+
+  let generatedOnly = 0;
+  let truthOnly = 0;
+  let overlap = 0;
+
+  for (let ix = 0; ix < nx; ix++) {
+    p.x = unionBounds.min.x + (ix + 0.5) * step;
+    for (let iy = 0; iy < ny; iy++) {
+      p.y = unionBounds.min.y + (iy + 0.5) * step + epsilon;
+      for (let iz = 0; iz < nz; iz++) {
+        p.z = unionBounds.min.z + (iz + 0.5) * step + epsilon * 2;
+        const inGenerated = isPointInsideBvh(p, generated.boundsTree, far);
+        const inTruth = isPointInsideBvh(p, truth.boundsTree, far);
+        if (inGenerated && inTruth) {
+          overlap += voxelVolumeMm3;
+        } else if (inGenerated) {
+          generatedOnly += voxelVolumeMm3;
+        } else if (inTruth) {
+          truthOnly += voxelVolumeMm3;
+        }
+      }
+    }
+  }
+
+  generated.disposeBoundsTree?.();
+  truth.disposeBoundsTree?.();
+  generated.dispose();
+  truth.dispose();
+
+  return {
+    overlapMm3: overlap,
+    generatedOnlyMm3: generatedOnly,
+    truthOnlyMm3: truthOnly,
+    generatedTotalMm3: overlap + generatedOnly,
+    truthTotalMm3: overlap + truthOnly,
+    unionMm3: overlap + generatedOnly + truthOnly,
+  };
 }
 
 function getParametricSample000035DisplayScale(params: Sample000035Params): number {
@@ -989,11 +1158,11 @@ export interface CompareAnalysis {
   matchedFaces: number;
   /** Coarse badge count derived from overall volume miss. */
   missedFaces: number;
-  /** Shared volume between generated and GT, surfaced in cm^3 in the UI. */
+  /** Overlap volume between generated and GT, surfaced in cm^3 in the UI. */
   matchedMm: number;
-  /** Absolute volume delta, surfaced in cm^3 in the UI. */
+  /** Non-overlap volume between generated and GT, surfaced in cm^3 in the UI. */
   missedMm: number;
-  /** Volume coverage % = matchedVolume / truthVolume. */
+  /** Overlap / union volume % estimate. */
   coverage: number;
   /** Reserved for future per-face breakdown; unused in the current UI. */
   faces: Array<{ key: FaceKey; label: string; matchMm: number; missMm: number }>;
@@ -1004,10 +1173,17 @@ export function Scene({
   onAnalysis,
   generatedParams = SAMPLE_000035_INITIAL_PARAMS,
   onGeneratedParamsChange,
+  pointCloudStlUrl = demoAssets.deepcadimg_000035.cloudStl,
+  groundTruthStlUrl = demoAssets.deepcadimg_000035.groundTruthStl,
+  generatedStlUrl = null,
+  generatedTitle = "Generated CAD",
 }: SceneProps) {
-  const pointCloudGeometry = useNormalizedStl(sample000035Assets.cloudStl);
-  const groundTruthGeometry = useNormalizedStl(sample000035Assets.groundTruthStl);
-  const groundTruthRawGeometry = useRawStl(sample000035Assets.groundTruthStl);
+  const pointCloudGeometry = useNormalizedStl(pointCloudStlUrl);
+  const groundTruthGeometry = useNormalizedStl(groundTruthStlUrl);
+  const groundTruthRawGeometry = useRawStl(groundTruthStlUrl);
+  const generatedStlGeometry = useNormalizedStl(generatedStlUrl);
+  const generatedRawGeometry = useRawStl(generatedStlUrl);
+  const usesParametricGenerated = !generatedStlUrl;
   const [activeDrag, setActiveDrag] = useState<ActiveDrag>(null);
   const generatedScale = useMemo(
     () => getParametricSample000035DisplayScale(generatedParams),
@@ -1045,24 +1221,37 @@ export function Scene({
   // OrbitControls is briefly unmounted during the tween.
   const currentLookRef = useRef(new THREE.Vector3(0, 0.1, 0));
 
+  const truthLongestMm = useMemo(() => {
+    if (!groundTruthRawGeometry) return SAMPLE_000035_LONGEST_PLAN_MM;
+    const rotated = groundTruthRawGeometry.clone();
+    rotated.rotateX(-Math.PI / 2);
+    const longest = Math.max(getGeometryLongestDimension(rotated), 1e-6);
+    rotated.dispose();
+    return longest;
+  }, [groundTruthRawGeometry]);
+
   const compareAnalysis = useMemo<CompareAnalysis>(() => {
-    const generatedGeometries = buildSample000035Geometries(generatedParams);
-    const generatedVolumeWorld3 =
-      computeGeometryVolume(generatedGeometries.base) + computeGeometryVolume(generatedGeometries.boss);
-    generatedGeometries.base.dispose();
-    generatedGeometries.boss.dispose();
-    const generatedVolumeMm3 = generatedVolumeWorld3 / Math.pow(MM_TO_WORLD, 3);
-    const truthVolumeMm3 = groundTruthRawGeometry
-      ? (() => {
-          const rawVolume = computeGeometryVolume(groundTruthRawGeometry);
-          const rawLongest = Math.max(getGeometryLongestDimension(groundTruthRawGeometry), 1e-6);
-          const mmPerRawUnit = SAMPLE_000035_LONGEST_PLAN_MM / rawLongest;
-          return rawVolume * Math.pow(mmPerRawUnit, 3);
-        })()
-      : generatedVolumeMm3;
-    const matchedVolumeMm3 = Math.min(generatedVolumeMm3, truthVolumeMm3);
-    const missedVolumeMm3 = Math.abs(generatedVolumeMm3 - truthVolumeMm3);
-    const coverageDenominator = matchedVolumeMm3 + missedVolumeMm3;
+    const truthCompareGeometry = groundTruthRawGeometry
+      ? buildGroundTruthComparisonGeometry(groundTruthRawGeometry, truthLongestMm)
+      : generatedRawGeometry
+        ? buildComparisonGeometryFromRaw(generatedRawGeometry, truthLongestMm)
+        : buildGeneratedComparisonGeometry(generatedParams);
+    const generatedCompareGeometry = generatedRawGeometry
+      ? buildBestAlignedGeneratedComparisonGeometry(
+          generatedRawGeometry,
+          truthCompareGeometry,
+          truthLongestMm,
+        )
+      : buildGeneratedComparisonGeometry(generatedParams);
+    const overlap = estimateOverlapVolumesMm3(
+      generatedCompareGeometry,
+      truthCompareGeometry,
+    );
+    generatedCompareGeometry.dispose();
+    truthCompareGeometry.dispose();
+    const matchedVolumeMm3 = overlap.overlapMm3;
+    const missedVolumeMm3 = overlap.unionMm3 - overlap.overlapMm3;
+    const coverageDenominator = overlap.unionMm3;
     const coverage =
       coverageDenominator <= 1e-6
         ? 100
@@ -1081,7 +1270,7 @@ export function Scene({
       coverage,
       faces,
     };
-  }, [generatedParams, groundTruthRawGeometry]);
+  }, [generatedParams, generatedRawGeometry, groundTruthRawGeometry, truthLongestMm]);
 
   useEffect(() => {
     if (!onAnalysis) return;
@@ -1220,22 +1409,30 @@ export function Scene({
         >
           <Podium />
           <CaptionLabel
-            title="Generated CAD"
-            subtitle="Our Result"
-            topY={(getSample000035TopY(generatedParams) - PODIUM_DECK_Y) * generatedScale}
+            title={generatedTitle}
+            subtitle={usesParametricGenerated ? "Our Result" : "Generated STEP"}
+            topY={
+              usesParametricGenerated
+                ? (getSample000035TopY(generatedParams) - PODIUM_DECK_Y) * generatedScale
+                : getSample000035TopY(SAMPLE_000035_INITIAL_PARAMS)
+            }
           />
           <SpinningStage paused={Boolean(activeDrag)} rotationRef={sharedRotation}>
-            <group scale={[generatedScale, generatedScale, generatedScale]}>
-              <ParametricSolidDeformed
-                params={generatedParams}
-                activeDrag={activeDrag}
-              />
-              <TopFaceDragLayer
-                geometry={generatedDragGeometry}
-                activeDrag={activeDrag}
-                onDragChange={setActiveDrag}
-              />
-            </group>
+            {usesParametricGenerated ? (
+              <group scale={[generatedScale, generatedScale, generatedScale]}>
+                <ParametricSolidDeformed
+                  params={generatedParams}
+                  activeDrag={activeDrag}
+                />
+                <TopFaceDragLayer
+                  geometry={generatedDragGeometry}
+                  activeDrag={activeDrag}
+                  onDragChange={setActiveDrag}
+                />
+              </group>
+            ) : (
+              <StlSolid geometry={generatedStlGeometry} />
+            )}
           </SpinningStage>
         </AnimatedStage>
 
