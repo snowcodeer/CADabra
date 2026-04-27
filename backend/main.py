@@ -32,7 +32,7 @@ SAMPLE_DATA_DIR = Path(os.getenv("SAMPLE_DATA_DIR", "./sample_data")).resolve()
 MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "10"))
 
 app = FastAPI(title="CADabra")
-logfire.instrument_fastapi(app)
+#logfire.instrument_fastapi(app)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
