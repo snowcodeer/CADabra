@@ -1,6 +1,6 @@
 import { createViewer } from './viewer.js';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = "https://cadabra-backendd.onrender.com";
 
 const sampleSelect = document.getElementById('sampleSelect');
 const fileInput = document.getElementById('fileInput');
