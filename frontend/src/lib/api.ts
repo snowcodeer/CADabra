@@ -12,7 +12,7 @@
  *   POST /process         -> PipelineResult
  */
 
-const DEFAULT_BASE = "http://localhost:8000";
+const DEFAULT_BASE = "https://cadabra-backendd.onrender.com";
 
 /** Resolve once at module load so consumers can override via VITE_API_BASE. */
 export const API_BASE: string =
