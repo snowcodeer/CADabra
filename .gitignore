@@ -12,3 +12,11 @@ backend/outputs/*
 *.env
 .env.*
 !.env.example
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+
+# OS
+.DS_Store
