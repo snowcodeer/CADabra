@@ -414,13 +414,81 @@ def _interior_holes(body_mask: np.ndarray) -> list[InteriorHole]:
     return holes
 
 
+def _segments_intersect(
+    a: np.ndarray, b: np.ndarray, c: np.ndarray, d: np.ndarray,
+) -> bool:
+    """Proper-intersection test for two segments AB and CD in 2D.
+
+    Returns True only when the segments cross each other's interior
+    (collinear-overlap and endpoint-touching cases return False so the
+    polygon simplicity check doesn't false-positive on shared vertices
+    between adjacent edges).
+    """
+    def ccw(p, q, r) -> float:
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    d1 = ccw(c, d, a)
+    d2 = ccw(c, d, b)
+    d3 = ccw(a, b, c)
+    d4 = ccw(a, b, d)
+    return (
+        ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0))
+        and ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0))
+    )
+
+
+def _polygon_is_simple(poly: np.ndarray) -> bool:
+    """Return True if no two non-adjacent edges of ``poly`` cross.
+
+    A simple closed polygon has only adjacent edges sharing endpoints;
+    when ``cv2.approxPolyDP`` over-preserves a noise spike the simplified
+    outline self-intersects (two near-coincident antiparallel edges on
+    the same silhouette edge). This catches that.
+    """
+    pts = np.asarray(poly, dtype=float)
+    n = len(pts)
+    if n < 4:
+        return True
+    for i in range(n):
+        a, b = pts[i], pts[(i + 1) % n]
+        # Compare against every non-adjacent edge. (i, i+1) is adjacent
+        # to (i-1, i) and (i+1, i+2); the wrap-around (n-1, 0) is also
+        # adjacent to (0, 1) so skip when i==0 and j==n-1.
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue
+            c, d = pts[j], pts[(j + 1) % n]
+            if _segments_intersect(a, b, c, d):
+                return False
+    return True
+
+
+# Epsilon multipliers tried in order when the default simplification
+# produces a self-intersecting polygon. Each step roughly doubles the
+# tolerance so noise spikes get smoothed away; ConvexHull is the
+# last-ditch fallback that always yields a simple polygon.
+_POLY_EPS_RETRY_MULTIPLIERS: tuple[float, ...] = (1.0, 1.5, 2.0, 3.0, 5.0, 8.0)
+
+
 def _polygon_and_edges(contour: np.ndarray) -> tuple[
     list[tuple[int, int]], tuple[int, int, int, int], list[StraightEdge],
 ]:
     """Approximate contour to polygon, then identify straight edges."""
     perim = cv2.arcLength(contour, closed=True)
-    eps = perim * POLY_APPROX_EPSILON_FRAC
-    poly = cv2.approxPolyDP(contour, eps, closed=True).reshape(-1, 2)
+    base_eps = perim * POLY_APPROX_EPSILON_FRAC
+    poly: np.ndarray | None = None
+    for mult in _POLY_EPS_RETRY_MULTIPLIERS:
+        candidate = cv2.approxPolyDP(
+            contour, base_eps * mult, closed=True,
+        ).reshape(-1, 2)
+        if len(candidate) >= 3 and _polygon_is_simple(candidate):
+            poly = candidate
+            break
+    if poly is None:
+        # All retries still self-intersected — fall back to the convex
+        # hull. Loses concavities but guarantees a simple polygon so the
+        # downstream sketch builder produces a valid STEP.
+        poly = cv2.convexHull(contour).reshape(-1, 2)
     bx, by, bw, bh = cv2.boundingRect(contour)
     bbox_diag = float(np.hypot(bw, bh))
 
