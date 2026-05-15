@@ -354,18 +354,16 @@ def _silhouette_mask(panel: np.ndarray) -> np.ndarray:
     """Return a boolean mask: True where the part body lives."""
     luma = cv2.cvtColor(panel, cv2.COLOR_RGB2GRAY)
     body = luma < SILHOUETTE_BODY_MAX_LUMA
-    # Close gaps in the silhouette before contour detection. Two sources
-    # of gaps: tiny pinholes from gpt-image-2 cleanup (handled by the
-    # original 3x3 close), and larger gaps from triangle-soup noisy
-    # reconstructions where the noisy STL is 3000+ disconnected
-    # triangles — PyVista's render lets the white background bleed
-    # through between every triangle. Real through-holes on these
-    # samples are ~20-30 px diameter, so a 9x9 ellipse with 2
-    # iterations bridges typical mesh gaps without erasing genuine
-    # features.
+    # Close pinholes left by gpt-image-2 cleanup so contour detection
+    # doesn't return one master contour with hundreds of internal holes
+    # for what is really a near-clean silhouette. 5x5 single-iteration
+    # close is a small bump over the original 3x3 to handle modest
+    # render gaps from triangle-soup noisy meshes without warping the
+    # silhouette boundary itself (anything more aggressive merges real
+    # features or shifts edges by several mm).
     body_u8 = body.astype(np.uint8) * 255
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
-    body_u8 = cv2.morphologyEx(body_u8, cv2.MORPH_CLOSE, kernel, iterations=2)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    body_u8 = cv2.morphologyEx(body_u8, cv2.MORPH_CLOSE, kernel, iterations=1)
     return body_u8 > 0
 
 
@@ -470,10 +468,11 @@ def _polygon_is_simple(poly: np.ndarray) -> bool:
 
 
 # Epsilon multipliers tried in order when the default simplification
-# produces a self-intersecting polygon. Each step roughly doubles the
-# tolerance so noise spikes get smoothed away; ConvexHull is the
-# last-ditch fallback that always yields a simple polygon.
-_POLY_EPS_RETRY_MULTIPLIERS: tuple[float, ...] = (1.0, 1.5, 2.0, 3.0, 5.0, 8.0)
+# produces a self-intersecting polygon. Conservative steps (small bumps
+# only) so curved profiles don't get collapsed into low-vertex polygons
+# that lose their arc segments. ConvexHull is the last-ditch fallback
+# that always yields a simple polygon.
+_POLY_EPS_RETRY_MULTIPLIERS: tuple[float, ...] = (1.0, 1.2, 1.5)
 
 
 def _polygon_and_edges(contour: np.ndarray) -> tuple[
