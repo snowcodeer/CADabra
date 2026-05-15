@@ -441,38 +441,91 @@ def _segments_intersect(
     )
 
 
-def _polygon_is_simple(poly: np.ndarray) -> bool:
-    """Return True if no two non-adjacent edges of ``poly`` cross.
+def _find_first_self_intersection(
+    poly: np.ndarray,
+) -> tuple[int, int] | None:
+    """Return ``(i, j)`` for the first non-adjacent edge pair that
+    crosses, or ``None`` if the polygon is simple.
 
-    A simple closed polygon has only adjacent edges sharing endpoints;
-    when ``cv2.approxPolyDP`` over-preserves a noise spike the simplified
-    outline self-intersects (two near-coincident antiparallel edges on
-    the same silhouette edge). This catches that.
+    Edge ``i`` is the segment ``poly[i] -> poly[i+1]``; edge ``j`` is
+    ``poly[j] -> poly[j+1]``. ``i < j`` always.
     """
     pts = np.asarray(poly, dtype=float)
     n = len(pts)
     if n < 4:
-        return True
+        return None
     for i in range(n):
         a, b = pts[i], pts[(i + 1) % n]
-        # Compare against every non-adjacent edge. (i, i+1) is adjacent
-        # to (i-1, i) and (i+1, i+2); the wrap-around (n-1, 0) is also
-        # adjacent to (0, 1) so skip when i==0 and j==n-1.
         for j in range(i + 2, n):
             if i == 0 and j == n - 1:
                 continue
             c, d = pts[j], pts[(j + 1) % n]
             if _segments_intersect(a, b, c, d):
-                return False
-    return True
+                return (i, j)
+    return None
 
 
-# Epsilon multipliers tried in order when the default simplification
-# produces a self-intersecting polygon. Conservative steps (small bumps
-# only) so curved profiles don't get collapsed into low-vertex polygons
-# that lose their arc segments. ConvexHull is the last-ditch fallback
-# that always yields a simple polygon.
-_POLY_EPS_RETRY_MULTIPLIERS: tuple[float, ...] = (1.0, 1.2, 1.5)
+def _polygon_is_simple(poly: np.ndarray) -> bool:
+    """Return True if no two non-adjacent edges of ``poly`` cross."""
+    return _find_first_self_intersection(poly) is None
+
+
+def _line_line_intersection(
+    p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, p4: np.ndarray,
+) -> tuple[float, float] | None:
+    """Intersection point of the infinite lines through ``p1-p2`` and
+    ``p3-p4``. Returns ``None`` if the lines are parallel."""
+    x1, y1 = float(p1[0]), float(p1[1])
+    x2, y2 = float(p2[0]), float(p2[1])
+    x3, y3 = float(p3[0]), float(p3[1])
+    x4, y4 = float(p4[0]), float(p4[1])
+    denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if abs(denom) < 1e-9:
+        return None
+    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+    return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
+
+
+def _repair_self_intersections(
+    poly: np.ndarray, max_iters: int = 12,
+) -> np.ndarray:
+    """Iteratively excise polyline spikes caused by self-intersection.
+
+    When edges ``i`` and ``j`` cross, the vertices ``i+1 .. j`` form
+    a sub-loop attached to the main polygon via the two crossing
+    edges. Replace those vertices with the single crossing point —
+    that excises the spike while leaving the rest of the outline
+    intact (so arcs further around the polygon survive untouched).
+
+    Repeats until simple or ``max_iters`` reached. Falls back to
+    the convex hull on the rare case where the repair cannot make
+    progress (e.g. nested intersections that the simple linear
+    excision can't resolve).
+    """
+    pts = [tuple(float(c) for c in p) for p in np.asarray(poly)]
+    for _ in range(max_iters):
+        n = len(pts)
+        if n < 4:
+            return np.asarray(pts, dtype=float)
+        cross = _find_first_self_intersection(np.asarray(pts, dtype=float))
+        if cross is None:
+            return np.asarray(pts, dtype=float)
+        i, j = cross
+        a, b = np.asarray(pts[i]), np.asarray(pts[(i + 1) % n])
+        c, d = np.asarray(pts[j]), np.asarray(pts[(j + 1) % n])
+        ip = _line_line_intersection(a, b, c, d)
+        # Replace vertices i+1..j with the intersection point. Walk
+        # forward from index 0 through i, append the intersection,
+        # then resume at j+1 through n-1.
+        kept_prefix = pts[: i + 1]
+        kept_suffix = pts[(j + 1) % n: n] if (j + 1) < n else []
+        if ip is None:
+            pts = kept_prefix + kept_suffix
+        else:
+            pts = kept_prefix + [ip] + kept_suffix
+        if len(pts) < 3:
+            break
+    return np.asarray(pts, dtype=float)
 
 
 def _polygon_and_edges(contour: np.ndarray) -> tuple[
@@ -480,20 +533,14 @@ def _polygon_and_edges(contour: np.ndarray) -> tuple[
 ]:
     """Approximate contour to polygon, then identify straight edges."""
     perim = cv2.arcLength(contour, closed=True)
-    base_eps = perim * POLY_APPROX_EPSILON_FRAC
-    poly: np.ndarray | None = None
-    for mult in _POLY_EPS_RETRY_MULTIPLIERS:
-        candidate = cv2.approxPolyDP(
-            contour, base_eps * mult, closed=True,
-        ).reshape(-1, 2)
-        if len(candidate) >= 3 and _polygon_is_simple(candidate):
-            poly = candidate
-            break
-    if poly is None:
-        # All retries still self-intersected — fall back to the convex
-        # hull. Loses concavities but guarantees a simple polygon so the
-        # downstream sketch builder produces a valid STEP.
-        poly = cv2.convexHull(contour).reshape(-1, 2)
+    eps = perim * POLY_APPROX_EPSILON_FRAC
+    poly = cv2.approxPolyDP(contour, eps, closed=True).reshape(-1, 2)
+    if not _polygon_is_simple(poly):
+        repaired = _repair_self_intersections(poly)
+        if len(repaired) >= 3 and _polygon_is_simple(repaired):
+            poly = repaired.astype(poly.dtype)
+        else:
+            poly = cv2.convexHull(contour).reshape(-1, 2)
     bx, by, bw, bh = cv2.boundingRect(contour)
     bbox_diag = float(np.hypot(bw, bh))
 
@@ -1045,21 +1092,18 @@ def _tier_polygon(contour: np.ndarray) -> tuple[
     list[tuple[int, int]], tuple[int, int, int, int],
 ]:
     perim = float(cv2.arcLength(contour, closed=True))
-    base_eps = max(1.0, perim * TIER_REGION_POLY_EPSILON)
-    # Same iterative-epsilon + convex-hull fallback as _polygon_and_edges,
-    # so tier-region polygons (used as extrude profiles via tier.outline)
-    # are guaranteed to be simple — otherwise CadQuery extrudes a
-    # self-intersecting profile and the STEP face is malformed.
-    poly: np.ndarray | None = None
-    for mult in _POLY_EPS_RETRY_MULTIPLIERS:
-        candidate = cv2.approxPolyDP(
-            contour, base_eps * mult, closed=True,
-        ).reshape(-1, 2)
-        if len(candidate) >= 3 and _polygon_is_simple(candidate):
-            poly = candidate
-            break
-    if poly is None:
-        poly = cv2.convexHull(contour).reshape(-1, 2)
+    eps = max(1.0, perim * TIER_REGION_POLY_EPSILON)
+    poly = cv2.approxPolyDP(contour, eps, closed=True).reshape(-1, 2)
+    # Same surgical spike-removal as _polygon_and_edges: tier-region
+    # polygons feed _segment_line_arc and become the extrude profile,
+    # so they must be simple. Surgical repair preserves arcs elsewhere
+    # in the outline; convex hull is the last-ditch fallback.
+    if not _polygon_is_simple(poly):
+        repaired = _repair_self_intersections(poly)
+        if len(repaired) >= 3 and _polygon_is_simple(repaired):
+            poly = repaired.astype(poly.dtype)
+        else:
+            poly = cv2.convexHull(contour).reshape(-1, 2)
     bx, by, bw, bh = cv2.boundingRect(contour)
     return ([(int(p[0]), int(p[1])) for p in poly],
             (int(bx), int(by), int(bw), int(bh)))
