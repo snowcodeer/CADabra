@@ -486,21 +486,61 @@ def _line_line_intersection(
     return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
 
 
+def _remove_spike_tips(
+    poly: list[tuple[float, float]], min_turn_cos: float = -0.9,
+) -> list[tuple[float, float]]:
+    """Remove vertices that form a hairpin (~180° turn).
+
+    A "spike tip" is a vertex whose incoming and outgoing edges are
+    nearly antiparallel — the polygon goes out to that vertex and
+    immediately turns back along (almost) the same line. These don't
+    register as self-intersections (the two edges meet at the vertex
+    so they don't formally cross), but they manifest as thin
+    triangular notches in the extruded face.
+
+    Repeats until no more spike tips found.
+    """
+    changed = True
+    while changed and len(poly) >= 4:
+        changed = False
+        n = len(poly)
+        for i in range(n):
+            prev_pt = np.asarray(poly[(i - 1) % n])
+            curr_pt = np.asarray(poly[i])
+            next_pt = np.asarray(poly[(i + 1) % n])
+            v_in = curr_pt - prev_pt
+            v_out = next_pt - curr_pt
+            n_in = float(np.linalg.norm(v_in))
+            n_out = float(np.linalg.norm(v_out))
+            if n_in < 1e-6 or n_out < 1e-6:
+                # Degenerate edge — drop the vertex.
+                del poly[i]
+                changed = True
+                break
+            cos_turn = float(np.dot(v_in, v_out) / (n_in * n_out))
+            if cos_turn < min_turn_cos:
+                del poly[i]
+                changed = True
+                break
+    return poly
+
+
 def _repair_self_intersections(
     poly: np.ndarray, max_iters: int = 12,
 ) -> np.ndarray:
     """Iteratively excise polyline spikes caused by self-intersection.
 
-    When edges ``i`` and ``j`` cross, the vertices ``i+1 .. j`` form
-    a sub-loop attached to the main polygon via the two crossing
-    edges. Replace those vertices with the single crossing point —
-    that excises the spike while leaving the rest of the outline
-    intact (so arcs further around the polygon survive untouched).
+    Two passes:
+      1. Self-intersecting edge pairs (i, j): replace the sub-loop
+         vertices ``i+1 .. j`` with the single crossing point.
+      2. Spike-tip vertices (incoming and outgoing edges nearly
+         antiparallel): drop the vertex.
 
-    Repeats until simple or ``max_iters`` reached. Falls back to
-    the convex hull on the rare case where the repair cannot make
-    progress (e.g. nested intersections that the simple linear
-    excision can't resolve).
+    Both passes preserve the rest of the polygon (including arcs at
+    other indices) since they only touch the offending vertices.
+    Repeats until stable or ``max_iters`` reached. Falls back to the
+    convex hull on pathological inputs where the surgical repair
+    cannot make progress.
     """
     pts = [tuple(float(c) for c in p) for p in np.asarray(poly)]
     for _ in range(max_iters):
@@ -509,7 +549,11 @@ def _repair_self_intersections(
             return np.asarray(pts, dtype=float)
         cross = _find_first_self_intersection(np.asarray(pts, dtype=float))
         if cross is None:
-            return np.asarray(pts, dtype=float)
+            # No more crossings — also strip out spike-tip vertices.
+            pts = _remove_spike_tips(pts)
+            if _find_first_self_intersection(np.asarray(pts, dtype=float)) is None:
+                return np.asarray(pts, dtype=float)
+            continue
         i, j = cross
         a, b = np.asarray(pts[i]), np.asarray(pts[(i + 1) % n])
         c, d = np.asarray(pts[j]), np.asarray(pts[(j + 1) % n])
