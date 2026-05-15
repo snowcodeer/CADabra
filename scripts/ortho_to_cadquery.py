@@ -488,6 +488,20 @@ def main() -> int:
                 vision_part, paths, part_id, label="Vision",
             )
             if ok:
+                # Save the vision attempt to a stable audit path BEFORE
+                # scoring + maybe-restoring, so the discarded attempt is
+                # still inspectable from disk afterwards.
+                vision_attempt_stl = OUTPUT_DIR / f"ortho_{part_id}_vision_attempt.stl"
+                vision_attempt_step = OUTPUT_DIR / f"ortho_{part_id}_vision_attempt.step"
+                vision_attempt_grid = OUTPUT_DIR / f"ortho_{part_id}_vision_attempt_recon_grid.png"
+                vision_attempt_code = OUTPUT_DIR / f"ortho_{part_id}_vision_attempt_generated.py"
+                vision_attempt_sketch = OUTPUT_DIR / f"ortho_{part_id}_vision_attempt_sketches.json"
+                shutil.copy(paths.stl, vision_attempt_stl)
+                shutil.copy(paths.step, vision_attempt_step)
+                if paths.recon_grid.exists():
+                    shutil.copy(paths.recon_grid, vision_attempt_grid)
+                shutil.copy(paths.code_py, vision_attempt_code)
+                shutil.copy(paths.sketch_json, vision_attempt_sketch)
                 confidence_vision, iou_breakdown_vision = _silhouette_iou(
                     input_stl, paths.stl,
                 )
