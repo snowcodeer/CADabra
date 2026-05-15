@@ -354,12 +354,18 @@ def _silhouette_mask(panel: np.ndarray) -> np.ndarray:
     """Return a boolean mask: True where the part body lives."""
     luma = cv2.cvtColor(panel, cv2.COLOR_RGB2GRAY)
     body = luma < SILHOUETTE_BODY_MAX_LUMA
-    # Close pinholes left by gpt-image-2 cleanup so contour detection
-    # doesn't return one master contour with hundreds of internal holes
-    # for what is really a near-clean silhouette.
+    # Close gaps in the silhouette before contour detection. Two sources
+    # of gaps: tiny pinholes from gpt-image-2 cleanup (handled by the
+    # original 3x3 close), and larger gaps from triangle-soup noisy
+    # reconstructions where the noisy STL is 3000+ disconnected
+    # triangles — PyVista's render lets the white background bleed
+    # through between every triangle. Real through-holes on these
+    # samples are ~20-30 px diameter, so a 9x9 ellipse with 2
+    # iterations bridges typical mesh gaps without erasing genuine
+    # features.
     body_u8 = body.astype(np.uint8) * 255
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    body_u8 = cv2.morphologyEx(body_u8, cv2.MORPH_CLOSE, kernel, iterations=1)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    body_u8 = cv2.morphologyEx(body_u8, cv2.MORPH_CLOSE, kernel, iterations=2)
     return body_u8 > 0
 
 
@@ -1040,8 +1046,21 @@ def _tier_polygon(contour: np.ndarray) -> tuple[
     list[tuple[int, int]], tuple[int, int, int, int],
 ]:
     perim = float(cv2.arcLength(contour, closed=True))
-    eps = max(1.0, perim * TIER_REGION_POLY_EPSILON)
-    poly = cv2.approxPolyDP(contour, eps, closed=True).reshape(-1, 2)
+    base_eps = max(1.0, perim * TIER_REGION_POLY_EPSILON)
+    # Same iterative-epsilon + convex-hull fallback as _polygon_and_edges,
+    # so tier-region polygons (used as extrude profiles via tier.outline)
+    # are guaranteed to be simple — otherwise CadQuery extrudes a
+    # self-intersecting profile and the STEP face is malformed.
+    poly: np.ndarray | None = None
+    for mult in _POLY_EPS_RETRY_MULTIPLIERS:
+        candidate = cv2.approxPolyDP(
+            contour, base_eps * mult, closed=True,
+        ).reshape(-1, 2)
+        if len(candidate) >= 3 and _polygon_is_simple(candidate):
+            poly = candidate
+            break
+    if poly is None:
+        poly = cv2.convexHull(contour).reshape(-1, 2)
     bx, by, bw, bh = cv2.boundingRect(contour)
     return ([(int(p[0]), int(p[1])) for p in poly],
             (int(bx), int(by), int(bw), int(bh)))
