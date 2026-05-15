@@ -22,8 +22,59 @@ import {
   Sample000035EditorScene,
   type Sample000035Params,
 } from "@/components/cad/Sample000035EditorScene";
+import {
+  SAMPLE_002354_INITIAL_PARAMS,
+  Sample002354EditorScene,
+  type Sample002354Params,
+} from "@/components/cad/Sample002354EditorScene";
+import {
+  SAMPLE_117514_INITIAL_PARAMS,
+  Sample117514EditorScene,
+  type Sample117514Params,
+} from "@/components/cad/Sample117514EditorScene";
+import {
+  SAMPLE_128105_INITIAL_PARAMS,
+  Sample128105EditorScene,
+  type Sample128105Params,
+} from "@/components/cad/Sample128105EditorScene";
 import { API_BASE, resolveOutputUrl } from "@/lib/api";
 import { demoAssets, type StepOffAudit } from "@/lib/demoAssets";
+
+type AllSampleParams = {
+  deepcadimg_000035: Sample000035Params;
+  deepcadimg_002354: Sample002354Params;
+  deepcadimg_117514: Sample117514Params;
+  deepcadimg_128105: Sample128105Params;
+};
+
+const INITIAL_PARAMS_BY_SAMPLE: AllSampleParams = {
+  deepcadimg_000035: SAMPLE_000035_INITIAL_PARAMS,
+  deepcadimg_002354: SAMPLE_002354_INITIAL_PARAMS,
+  deepcadimg_117514: SAMPLE_117514_INITIAL_PARAMS,
+  deepcadimg_128105: SAMPLE_128105_INITIAL_PARAMS,
+};
+
+const EDITOR_HINT_BY_SAMPLE: Record<keyof AllSampleParams, string> = {
+  deepcadimg_000035:
+    "Drag the highlighted horizontal surfaces up and down to change the base height, boss height, and counterbore depth.",
+  deepcadimg_002354:
+    "Drag the top face up or down to change the plate extrusion height.",
+  deepcadimg_117514:
+    "Drag any tier's top face to change its individual extrusion height.",
+  deepcadimg_128105:
+    "Drag the top face up or down to change the bracket extrusion height.",
+};
+
+const EDITOR_DRAG_HINT_BY_SAMPLE: Record<keyof AllSampleParams, string> = {
+  deepcadimg_000035:
+    "Outer flange top changes the base thickness. The boss top changes its extrusion. The recessed annulus inside the boss changes the counterbore depth.",
+  deepcadimg_002354:
+    "The top face of the plate is the only parametric handle on this sample.",
+  deepcadimg_117514:
+    "Each tier exposes its own top face. Drag any one to shift only that tier's height; the tiers above ride along.",
+  deepcadimg_128105:
+    "The top face of the bracket is the only parametric handle on this sample.",
+};
 
 const DEMO_SAMPLES = [
   {
@@ -58,14 +109,27 @@ const Demo = () => {
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [selectedSampleId, setSelectedSampleId] = useState<DemoSampleId>("deepcadimg_000035");
-  const [params, setParams] = useState<Sample000035Params>(SAMPLE_000035_INITIAL_PARAMS);
+  const [paramsBySample, setParamsBySample] = useState<AllSampleParams>(INITIAL_PARAMS_BY_SAMPLE);
+
+  const setSampleParams = useCallback(
+    <K extends DemoSampleId>(id: K, next: AllSampleParams[K]) => {
+      setParamsBySample((prev) => ({ ...prev, [id]: next }));
+    },
+    [],
+  );
+
+  const params = paramsBySample.deepcadimg_000035;
+  const setParams = useCallback(
+    (next: Sample000035Params) => setSampleParams("deepcadimg_000035", next),
+    [setSampleParams],
+  );
 
   const handleAnalysis = useCallback((a: CompareAnalysis) => setAnalysis(a), []);
   const selectedSample = useMemo(
     () => DEMO_SAMPLES.find((sample) => sample.id === selectedSampleId) ?? DEMO_SAMPLES[0],
     [selectedSampleId],
   );
-  const isEditableSample = selectedSampleId === "deepcadimg_000035";
+  const isParametricCenter = selectedSampleId === "deepcadimg_000035";
   const stepUrl = useMemo(
     () => `${API_BASE}/outputs/ortho_${selectedSampleId}.step`,
     [selectedSampleId],
@@ -119,7 +183,12 @@ const Demo = () => {
             </button>
             <button
               type="button"
-              onClick={() => setParams(SAMPLE_000035_INITIAL_PARAMS)}
+              onClick={() =>
+                setParamsBySample((prev) => ({
+                  ...prev,
+                  [selectedSampleId]: INITIAL_PARAMS_BY_SAMPLE[selectedSampleId],
+                }))
+              }
               className="inline-flex items-center gap-2 rounded-full border border-border bg-background/75 px-4 py-2 text-sm font-medium text-foreground backdrop-blur-sm transition-colors hover:bg-background"
             >
               <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
@@ -138,11 +207,34 @@ const Demo = () => {
         </header>
 
         <div className="absolute inset-0">
-          <Sample000035EditorScene
-            params={params}
-            onChange={setParams}
-            interactive
-          />
+          {selectedSampleId === "deepcadimg_000035" && (
+            <Sample000035EditorScene
+              params={paramsBySample.deepcadimg_000035}
+              onChange={(next) => setSampleParams("deepcadimg_000035", next)}
+              interactive
+            />
+          )}
+          {selectedSampleId === "deepcadimg_002354" && (
+            <Sample002354EditorScene
+              params={paramsBySample.deepcadimg_002354}
+              onChange={(next) => setSampleParams("deepcadimg_002354", next)}
+              interactive
+            />
+          )}
+          {selectedSampleId === "deepcadimg_117514" && (
+            <Sample117514EditorScene
+              params={paramsBySample.deepcadimg_117514}
+              onChange={(next) => setSampleParams("deepcadimg_117514", next)}
+              interactive
+            />
+          )}
+          {selectedSampleId === "deepcadimg_128105" && (
+            <Sample128105EditorScene
+              params={paramsBySample.deepcadimg_128105}
+              onChange={(next) => setSampleParams("deepcadimg_128105", next)}
+              interactive
+            />
+          )}
         </div>
 
         <aside className="pointer-events-none absolute left-6 top-24 z-20 w-[min(24rem,calc(100vw-3rem))] rounded-3xl border border-border bg-background/82 p-5 shadow-xl backdrop-blur-md sm:left-8 sm:top-28">
@@ -154,17 +246,13 @@ const Demo = () => {
               {`ortho_${selectedSampleId}.step`}
             </h1>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Drag the highlighted horizontal surfaces up and down to change the base height,
-              boss height, and counterbore depth.
+              {EDITOR_HINT_BY_SAMPLE[selectedSampleId]}
             </p>
 
             <div className="mt-5 space-y-3">
-              <MetricRow label="Base extrusion" value={params.baseHeightMm} delta={delta.base} />
-              <MetricRow label="Boss extrusion" value={params.bossHeightMm} delta={delta.boss} />
-              <MetricRow
-                label="Counterbore depth"
-                value={params.counterboreDepthMm}
-                delta={delta.counterbore}
+              <SampleMetricRows
+                sampleId={selectedSampleId}
+                paramsBySample={paramsBySample}
               />
             </div>
 
@@ -178,8 +266,7 @@ const Demo = () => {
                 <div>
                   <div className="text-xs font-semibold text-foreground">Drag the lit surfaces</div>
                   <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                    Outer flange top changes the base thickness. The boss top changes its extrusion.
-                    The recessed annulus inside the boss changes the counterbore depth.
+                    {EDITOR_DRAG_HINT_BY_SAMPLE[selectedSampleId]}
                   </p>
                 </div>
               </div>
@@ -226,9 +313,8 @@ const Demo = () => {
           </button>
           <button
             type="button"
-            onClick={() => isEditableSample && setEditorOpen(true)}
-            disabled={!isEditableSample}
-            className="opacity-0 animate-[demo-slide-in-right_650ms_var(--ease-out-soft)_420ms_forwards] inline-flex items-center gap-2 rounded-full border border-border bg-background/78 px-4 py-2 text-sm font-medium text-foreground backdrop-blur-sm transition-colors hover:bg-background disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={() => setEditorOpen(true)}
+            className="opacity-0 animate-[demo-slide-in-right_650ms_var(--ease-out-soft)_420ms_forwards] inline-flex items-center gap-2 rounded-full border border-border bg-background/78 px-4 py-2 text-sm font-medium text-foreground backdrop-blur-sm transition-colors hover:bg-background"
           >
             <PencilRuler className="h-4 w-4" strokeWidth={1.8} />
             <span>Edit Shape</span>
@@ -257,8 +343,8 @@ const Demo = () => {
           onGeneratedParamsChange={setParams}
           pointCloudStlUrl={selectedSample.assets.cloudStl}
           groundTruthStlUrl={selectedSample.assets.groundTruthStl}
-          generatedStlUrl={isEditableSample ? null : generatedStlUrl}
-          generatedTitle={isEditableSample ? "Generated CAD" : selectedSample.name}
+          generatedStlUrl={isParametricCenter ? null : generatedStlUrl}
+          generatedTitle={isParametricCenter ? "Generated CAD" : selectedSample.name}
         />
       </div>
 
@@ -294,7 +380,6 @@ const Demo = () => {
                     setSelectedSampleId(sample.id);
                     setCompareMode(false);
                     setGalleryOpen(false);
-                    if (sample.id !== "deepcadimg_000035") setEditorOpen(false);
                   }}
                   className={`group relative aspect-[4/3] w-full overflow-hidden rounded-xl border bg-surface/60 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:shadow-lg ${
                     sample.id === selectedSampleId
@@ -346,9 +431,7 @@ const Demo = () => {
                 Inspect {selectedSample.name}
               </div>
               <p className="max-w-[18rem] text-[11px] leading-relaxed text-muted-foreground">
-                {isEditableSample
-                  ? "This sample supports the parametric editor. Use Edit Shape to refine it or open the generated STEP output."
-                  : "Switch between the other curated shapes here and open their generated STEP outputs while we iterate on quality."}
+                Use Edit Shape to refine this sample's parametric handles, or open the generated STEP output.
               </p>
             </div>
           </div>
@@ -564,6 +647,81 @@ function MetricRow({
         Delta {deltaLabel}
       </div>
     </div>
+  );
+}
+
+function SampleMetricRows({
+  sampleId,
+  paramsBySample,
+}: {
+  sampleId: keyof AllSampleParams;
+  paramsBySample: AllSampleParams;
+}) {
+  if (sampleId === "deepcadimg_000035") {
+    const p = paramsBySample.deepcadimg_000035;
+    const init = SAMPLE_000035_INITIAL_PARAMS;
+    return (
+      <>
+        <MetricRow
+          label="Base extrusion"
+          value={p.baseHeightMm}
+          delta={p.baseHeightMm - init.baseHeightMm}
+        />
+        <MetricRow
+          label="Boss extrusion"
+          value={p.bossHeightMm}
+          delta={p.bossHeightMm - init.bossHeightMm}
+        />
+        <MetricRow
+          label="Counterbore depth"
+          value={p.counterboreDepthMm}
+          delta={p.counterboreDepthMm - init.counterboreDepthMm}
+        />
+      </>
+    );
+  }
+  if (sampleId === "deepcadimg_002354") {
+    const p = paramsBySample.deepcadimg_002354;
+    const init = SAMPLE_002354_INITIAL_PARAMS;
+    return (
+      <MetricRow
+        label="Plate extrusion"
+        value={p.extrudeMm}
+        delta={p.extrudeMm - init.extrudeMm}
+      />
+    );
+  }
+  if (sampleId === "deepcadimg_117514") {
+    const p = paramsBySample.deepcadimg_117514;
+    const init = SAMPLE_117514_INITIAL_PARAMS;
+    return (
+      <>
+        <MetricRow
+          label="Tier 1 height"
+          value={p.tier1Mm}
+          delta={p.tier1Mm - init.tier1Mm}
+        />
+        <MetricRow
+          label="Tier 2 height"
+          value={p.tier2Mm}
+          delta={p.tier2Mm - init.tier2Mm}
+        />
+        <MetricRow
+          label="Tier 3 height"
+          value={p.tier3Mm}
+          delta={p.tier3Mm - init.tier3Mm}
+        />
+      </>
+    );
+  }
+  const p = paramsBySample.deepcadimg_128105;
+  const init = SAMPLE_128105_INITIAL_PARAMS;
+  return (
+    <MetricRow
+      label="Bracket extrusion"
+      value={p.extrudeMm}
+      delta={p.extrudeMm - init.extrudeMm}
+    />
   );
 }
 
