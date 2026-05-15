@@ -2071,34 +2071,37 @@ type DemoSample = {
   orthoGrid: string;
 };
 
+const backendOrthoGrid = (sampleId: string): string =>
+  resolveOutputUrl(`/outputs/ortho_${sampleId}_recon_grid.png`) ?? "";
+
 const DEMO_SAMPLES: DemoSample[] = [
   {
     sample_id: "deepcadimg_000035",
     display_name: "Flanged Boss",
     cloudStl: demoAssets.deepcadimg_000035.cloudStl,
     cleanStl: demoAssets.deepcadimg_000035.groundTruthStl,
-    orthoGrid: demoAssets.deepcadimg_000035.orthoGrid,
+    orthoGrid: backendOrthoGrid("deepcadimg_000035"),
   },
   {
     sample_id: "deepcadimg_002354",
     display_name: "Stepped Plate",
     cloudStl: demoAssets.deepcadimg_002354.cloudStl,
     cleanStl: demoAssets.deepcadimg_002354.groundTruthStl,
-    orthoGrid: demoAssets.deepcadimg_002354.orthoGrid,
+    orthoGrid: backendOrthoGrid("deepcadimg_002354"),
   },
   {
     sample_id: "deepcadimg_117514",
     display_name: "Slotted Bracket",
     cloudStl: demoAssets.deepcadimg_117514.cloudStl,
     cleanStl: demoAssets.deepcadimg_117514.groundTruthStl,
-    orthoGrid: demoAssets.deepcadimg_117514.orthoGrid,
+    orthoGrid: backendOrthoGrid("deepcadimg_117514"),
   },
   {
     sample_id: "deepcadimg_128105",
     display_name: "Drilled Block",
     cloudStl: demoAssets.deepcadimg_128105.cloudStl,
     cleanStl: demoAssets.deepcadimg_128105.groundTruthStl,
-    orthoGrid: demoAssets.deepcadimg_128105.orthoGrid,
+    orthoGrid: backendOrthoGrid("deepcadimg_128105"),
   },
 ];
 

@@ -129,7 +129,6 @@ const Demo = () => {
     () => DEMO_SAMPLES.find((sample) => sample.id === selectedSampleId) ?? DEMO_SAMPLES[0],
     [selectedSampleId],
   );
-  const isParametricCenter = selectedSampleId === "deepcadimg_000035";
   const stepUrl = useMemo(
     () => `${API_BASE}/outputs/ortho_${selectedSampleId}.step`,
     [selectedSampleId],
@@ -343,8 +342,8 @@ const Demo = () => {
           onGeneratedParamsChange={setParams}
           pointCloudStlUrl={selectedSample.assets.cloudStl}
           groundTruthStlUrl={selectedSample.assets.groundTruthStl}
-          generatedStlUrl={isParametricCenter ? null : generatedStlUrl}
-          generatedTitle={isParametricCenter ? "Generated CAD" : selectedSample.name}
+          generatedStlUrl={generatedStlUrl}
+          generatedTitle={selectedSample.name}
         />
       </div>
 
