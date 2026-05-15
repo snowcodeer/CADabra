@@ -8,15 +8,15 @@ import groundTruth002354Url from "../../deepcad_stl/deepcadimg_002354.stl?url";
 import groundTruth117514Url from "../../deepcad_stl/deepcadimg_117514.stl?url";
 import groundTruth128105Url from "../../deepcad_stl/deepcadimg_128105.stl?url";
 
-import orthoGrid000035Url from "../../public/demos/ortho_deepcadimg_000035_recon_grid.png?url";
-import orthoGrid002354Url from "../../public/demos/ortho_deepcadimg_002354_recon_grid.png?url";
-import orthoGrid117514Url from "../../public/demos/ortho_deepcadimg_117514_recon_grid.png?url";
-import orthoGrid128105Url from "../../public/demos/ortho_deepcadimg_128105_recon_grid.png?url";
+import orthoGrid000035Url from "../demos/ortho_deepcadimg_000035_recon_grid.png?url";
+import orthoGrid002354Url from "../demos/ortho_deepcadimg_002354_recon_grid.png?url";
+import orthoGrid117514Url from "../demos/ortho_deepcadimg_117514_recon_grid.png?url";
+import orthoGrid128105Url from "../demos/ortho_deepcadimg_128105_recon_grid.png?url";
 
-import stepOffs000035 from "../../public/demos/ortho_deepcadimg_000035_step_offs.json";
-import stepOffs002354 from "../../public/demos/ortho_deepcadimg_002354_step_offs.json";
-import stepOffs117514 from "../../public/demos/ortho_deepcadimg_117514_step_offs.json";
-import stepOffs128105 from "../../public/demos/ortho_deepcadimg_128105_step_offs.json";
+import stepOffs000035 from "../demos/ortho_deepcadimg_000035_step_offs.json";
+import stepOffs002354 from "../demos/ortho_deepcadimg_002354_step_offs.json";
+import stepOffs117514 from "../demos/ortho_deepcadimg_117514_step_offs.json";
+import stepOffs128105 from "../demos/ortho_deepcadimg_128105_step_offs.json";
 
 export type StepOffAxis = "X" | "Y" | "Z";
 export type StepOffKind = "external" | "internal" | "through";
