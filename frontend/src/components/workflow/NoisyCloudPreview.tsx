@@ -134,7 +134,7 @@ export function NoisyCloudPreview({ src }: { src: string }) {
       camera={{ position: [0, 0.4, 3], fov: 35 }}
       gl={{ antialias: true, alpha: true, preserveDrawingBuffer: false }}
       frameloop="always"
-      style={{ background: "transparent" }}
+      style={{ background: "transparent", pointerEvents: "none" }}
     >
       <ambientLight intensity={0.9} />
       <Suspense fallback={null}>
