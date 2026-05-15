@@ -12,6 +12,7 @@ import {
   Download,
   PencilRuler,
   RotateCcw,
+  Layers,
 } from "lucide-react";
 import { Scene, type CompareAnalysis } from "@/components/cad/Scene";
 import { CadabraCadLockup } from "@/components/CadabraWordmark";
@@ -22,7 +23,7 @@ import {
   type Sample000035Params,
 } from "@/components/cad/Sample000035EditorScene";
 import { API_BASE, resolveOutputUrl } from "@/lib/api";
-import { demoAssets } from "@/lib/demoAssets";
+import { demoAssets, type StepOffAudit } from "@/lib/demoAssets";
 
 const DEMO_SAMPLES = [
   {
@@ -55,6 +56,7 @@ const Demo = () => {
   const [analysis, setAnalysis] = useState<CompareAnalysis | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [selectedSampleId, setSelectedSampleId] = useState<DemoSampleId>("deepcadimg_000035");
   const [params, setParams] = useState<Sample000035Params>(SAMPLE_000035_INITIAL_PARAMS);
 
@@ -231,6 +233,19 @@ const Demo = () => {
             <PencilRuler className="h-4 w-4" strokeWidth={1.8} />
             <span>Edit Shape</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setInspectorOpen((v) => !v)}
+            aria-pressed={inspectorOpen}
+            className={`opacity-0 animate-[demo-slide-in-right_650ms_var(--ease-out-soft)_520ms_forwards] inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium backdrop-blur-sm transition-colors ${
+              inspectorOpen
+                ? "bg-foreground text-background hover:opacity-90"
+                : "border border-border bg-background/78 text-foreground hover:bg-background"
+            }`}
+          >
+            <Layers className="h-4 w-4" strokeWidth={1.8} />
+            <span>Step-offs</span>
+          </button>
         </div>
       </header>
 
@@ -383,6 +398,13 @@ const Demo = () => {
         </div>
       </aside>
 
+      {inspectorOpen && (
+        <StepOffPanel
+          audit={selectedSample.assets.stepOffs}
+          onClose={() => setInspectorOpen(false)}
+        />
+      )}
+
       <div
         className={`pointer-events-none absolute right-[max(0.75rem,env(safe-area-inset-right))] z-30 transition-all duration-300 sm:right-6 md:right-8 ${
           compareMode ? "top-20 sm:top-24" : "bottom-[max(1.25rem,env(safe-area-inset-bottom))] sm:bottom-10"
@@ -414,6 +436,113 @@ const Demo = () => {
     </main>
   );
 };
+
+function StepOffPanel({
+  audit,
+  onClose,
+}: {
+  audit: StepOffAudit;
+  onClose: () => void;
+}) {
+  const tallies = audit.external_tallies;
+  return (
+    <aside className="pointer-events-none absolute left-4 top-20 z-20 flex max-h-[calc(100dvh-7rem)] w-[min(26rem,calc(100vw-2rem))] flex-col rounded-3xl border border-border bg-background/85 shadow-xl backdrop-blur-md sm:left-6 sm:top-24 md:left-8">
+      <div className="pointer-events-auto flex items-start justify-between gap-3 px-5 pb-3 pt-5">
+        <div>
+          <div className="text-[10px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
+            Step-off audit
+          </div>
+          <div className="mt-1 font-mono text-[11px] uppercase tracking-[0.18em] text-foreground">
+            {audit.sample_id}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close step-off inspector"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface/60 hover:text-foreground"
+        >
+          <X className="h-3.5 w-3.5" strokeWidth={1.8} />
+        </button>
+      </div>
+
+      <div className="pointer-events-auto grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 border-t border-border/80 px-5 py-4">
+        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          Axis picked
+        </span>
+        <span className="inline-flex w-fit items-center rounded-full bg-foreground px-2.5 py-0.5 font-mono text-xs font-semibold text-background">
+          {audit.axis_picked}
+        </span>
+
+        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          External tallies
+        </span>
+        <div className="flex items-center gap-1.5">
+          {(["X", "Y", "Z"] as const).map((ax) => {
+            const isPicked = ax === audit.axis_picked;
+            return (
+              <span
+                key={ax}
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[11px] ${
+                  isPicked
+                    ? "border-foreground/70 bg-surface/70 text-foreground"
+                    : "border-border bg-surface/40 text-muted-foreground"
+                }`}
+              >
+                <span className="font-semibold">{ax}</span>
+                <span className="tabular-nums">{tallies[ax] ?? 0}</span>
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="pointer-events-auto min-h-0 flex-1 overflow-y-auto border-t border-border/80 px-5 py-3">
+        {audit.step_offs.length === 0 ? (
+          <div className="py-6 text-center text-xs text-muted-foreground">
+            No step-offs detected.
+          </div>
+        ) : (
+          <table className="w-full border-collapse text-left font-mono text-[10.5px]">
+            <thead className="text-[9.5px] uppercase tracking-[0.16em] text-muted-foreground">
+              <tr>
+                <th className="py-1.5 pr-2 font-medium">id</th>
+                <th className="py-1.5 pr-2 font-medium">view</th>
+                <th className="py-1.5 pr-2 font-medium">axis</th>
+                <th className="py-1.5 pr-2 font-medium">kind</th>
+                <th className="py-1.5 pr-2 font-medium">dir</th>
+                <th className="py-1.5 pr-2 text-right font-medium">depth</th>
+                <th className="py-1.5 text-right font-medium">conf</th>
+              </tr>
+            </thead>
+            <tbody className="text-foreground">
+              {audit.step_offs.map((s) => (
+                <tr key={s.id} className="border-t border-border/60">
+                  <td className="py-1.5 pr-2 text-muted-foreground">{shortenStepId(s.id)}</td>
+                  <td className="py-1.5 pr-2">{s.view}</td>
+                  <td className="py-1.5 pr-2">{s.axis}</td>
+                  <td className="py-1.5 pr-2">{s.kind}</td>
+                  <td className="py-1.5 pr-2">{s.step_direction}</td>
+                  <td className="py-1.5 pr-2 text-right tabular-nums">
+                    {s.depth_mm.toFixed(2)}
+                  </td>
+                  <td className="py-1.5 text-right tabular-nums">
+                    {s.confidence.toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function shortenStepId(id: string): string {
+  // step:Top:1->0  ->  Top:1->0
+  return id.startsWith("step:") ? id.slice(5) : id;
+}
 
 function MetricRow({
   label,
