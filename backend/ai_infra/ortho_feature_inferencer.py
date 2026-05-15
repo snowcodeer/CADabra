@@ -33,7 +33,7 @@ matching the convention used by face_extractor and stl_renderer.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterable
 
 import numpy as np
@@ -60,6 +60,15 @@ from backend.ai_infra.sketch_models import (
 
 
 NORMALISE_LONGEST_MM = 100.0
+
+# Geometric-mean target: scale the part so the geometric mean of its three
+# bbox extents equals this value. Preserves aspect ratios but pulls
+# extreme-aspect parts (e.g. 117514's 2:2:1 octagonal post) toward a
+# "neutral" overall size instead of stretching the longest axis to 100mm
+# while leaving the shortest at ~50mm. Picked 60mm so a roughly-cubic part
+# still lands near 60mm on every side; high-aspect parts get their longest
+# axis around 90-110mm and shortest around 30-40mm.
+NORMALISE_GEOMETRIC_MEAN_MM = 60.0
 
 # A polygon counts as a "D-cut" (circle with parallel chord cuts) when
 # its strongest parallel pair has BOTH edges at least this long relative
@@ -127,8 +136,14 @@ def _world_frame(views: dict[str, ViewFeatures]) -> WorldFrame:
     y_px = sum(y_candidates) / len(y_candidates) if y_candidates else 1.0
     z_px = sum(z_candidates) / len(z_candidates) if z_candidates else 1.0
 
-    longest = max(x_px, y_px, z_px, 1.0)
-    mm_per_px = NORMALISE_LONGEST_MM / longest
+    # Scale so the geometric mean of the three axes hits the target. The
+    # geometric mean keeps aspect ratios untouched but is less sensitive
+    # to a single dominant axis than the longest-axis rule (which made
+    # tall thin parts feel disproportionately large).
+    gm = (x_px * y_px * z_px) ** (1.0 / 3.0)
+    if gm <= 0:
+        gm = max(x_px, y_px, z_px, 1.0)
+    mm_per_px = NORMALISE_GEOMETRIC_MEAN_MM / gm
     return WorldFrame(x_px=x_px, y_px=y_px, z_px=z_px, mm_per_px=mm_per_px)
 
 
@@ -441,6 +456,79 @@ class ClassifiedProfile:
     label: str               # "circle" | "rectangle" | "arc_line" | "polyline"
 
 
+def _collapse_collinear_segments(
+    segs: list[ArcLineSegment], bbox_diag_mm: float,
+    angle_tol_deg: float = 8.0,
+    min_len_frac: float = 0.01,
+) -> list[ArcLineSegment]:
+    """Smooth a closed arc/line loop by merging tiny or near-collinear
+    consecutive LINE segments. Arcs are never absorbed — they carry true
+    curvature that the rebuild would lose if collapsed.
+
+    A line is replaced when EITHER it's shorter than ``min_len_frac`` of
+    the bbox diagonal OR the angle it forms with the previous line is
+    within ``angle_tol_deg``. In both cases the merge extends the
+    previous segment's end to this segment's end (i.e. the kink is
+    erased and the geometry of the loop tightens by a fraction of a
+    millimetre at most).
+    """
+    if not segs:
+        return segs
+    import math
+    min_len_mm = max(bbox_diag_mm * min_len_frac, 0.0)
+
+    def _dir(a: ArcLineSegment) -> tuple[float, float]:
+        dx, dy = a.end[0] - a.start[0], a.end[1] - a.start[1]
+        n = math.hypot(dx, dy) or 1.0
+        return (dx / n, dy / n)
+
+    def _line_len(a: ArcLineSegment) -> float:
+        return math.hypot(a.end[0] - a.start[0], a.end[1] - a.start[1])
+
+    out: list[ArcLineSegment] = []
+    for seg in segs:
+        if seg.kind != "line" or not out or out[-1].kind != "line":
+            out.append(seg)
+            continue
+        prev = out[-1]
+        merge = False
+        if _line_len(seg) < min_len_mm:
+            merge = True
+        else:
+            dx0, dy0 = _dir(prev)
+            dx1, dy1 = _dir(seg)
+            dot = max(-1.0, min(1.0, dx0 * dx1 + dy0 * dy1))
+            angle_deg = math.degrees(math.acos(dot))
+            if angle_deg < angle_tol_deg:
+                merge = True
+        if merge:
+            out[-1] = ArcLineSegment(
+                kind="line",
+                start=prev.start,
+                end=seg.end,
+                arc_centre=None,
+                arc_radius_mm=None,
+                arc_ccw=None,
+            )
+        else:
+            out.append(seg)
+    # The closing wrap: the last segment's end is anchored to the first
+    # segment's start, but after merges the closure may now have a near-
+    # zero-length tail. Drop trailing micro-segments back-to-front.
+    while len(out) > 3 and out[-1].kind == "line" and _line_len(out[-1]) < min_len_mm:
+        # Extend the new last segment to close the loop instead.
+        dropped = out.pop()
+        out[-1] = ArcLineSegment(
+            kind=out[-1].kind,
+            start=out[-1].start,
+            end=dropped.end,
+            arc_centre=out[-1].arc_centre,
+            arc_radius_mm=out[-1].arc_radius_mm,
+            arc_ccw=out[-1].arc_ccw,
+        )
+    return out
+
+
 def _classify_outline_perimeter_fraction(outline: list[OutlineSegment]) -> tuple[str, float]:
     """Return (label, arc_fraction) where label ∈ {circle, rectangle,
     arc_line, polyline, empty} based on how much of the perimeter is
@@ -470,6 +558,11 @@ def _classify_outline_perimeter_fraction(outline: list[OutlineSegment]) -> tuple
         return "arc_line", arc_frac
     if len(lines) == 4 and not arcs:
         return "rectangle", 0.0
+    # Even with low arc_frac, if the segmenter found genuine arcs they
+    # are meaningful primitives — emit as arc_line so the rebuild gets
+    # clean piecewise segments instead of a noisy 100-vertex polyline.
+    if len(arcs) >= 2 and lines:
+        return "arc_line", arc_frac
     if arc_frac < 0.15:
         return "polyline", arc_frac
     return "polyline", arc_frac
@@ -501,7 +594,55 @@ def _profile_from_outline_polyline_bbox(
     def _to_mm(p: tuple[float, float]) -> tuple[float, float]:
         return ((p[0] - cx_px) * mm_per_px, -(p[1] - cy_px) * mm_per_px)
 
-    # 1. Regular polygon detection — try BEFORE the outline classifier.
+    # 1a. EARLY EXIT for shapes with significant arc content. A regular
+    #     polygon has ZERO real arcs in its outline; if the line/arc
+    #     segmenter found arcs covering >= 15% of the perimeter, this
+    #     is a curved or composite shape (D-cut, obround, etc.) and
+    #     forcing it into a regular polygon would lose the geometric
+    #     intent. Compute arc-perimeter fraction inline.
+    if outline:
+        import math as _m
+        _arc_perim = sum(
+            (s.arc_radius_px or 0.0) * _m.radians(s.arc_span_deg or 0.0)
+            for s in outline if s.kind == "arc"
+        )
+        _line_perim = sum(
+            ((s.end_xy[0] - s.start_xy[0]) ** 2 +
+             (s.end_xy[1] - s.start_xy[1]) ** 2) ** 0.5
+            for s in outline if s.kind == "line"
+        )
+        _total = _arc_perim + _line_perim
+        _arc_frac = _arc_perim / _total if _total > 0 else 0.0
+        _has_real_arcs = _arc_frac >= 0.15
+    else:
+        _has_real_arcs = False
+
+    # 1. CIRCLE detection — runs FIRST so a near-perfectly circular
+    #    smooth polyline doesn't get false-positived as an n-gon. A
+    #    true circle has radial stdev/mean below ~2% (anti-aliasing
+    #    floor at ~0.3%, gpt-image-2 cleanup typically lands 0.7-1.7%)
+    #    AND a near-square bbox (aspect 0.95-1.05). Real regular
+    #    polygons sit higher: 8-gon ~3-7%, 12-gon ~2-3%. We threshold
+    #    at 2.0% which separates clean circles from polygons reliably
+    #    on the cleaned-PNG corpus we've measured.
+    bx, by, bw, bh = bbox_px
+    aspect = bw / bh if bh else 0.0
+    if (smooth_polyline_px and len(smooth_polyline_px) >= 16
+            and 0.95 <= aspect <= 1.05):
+        pts = np.array(smooth_polyline_px, dtype=np.float64)
+        centre = pts.mean(axis=0)
+        rs = np.linalg.norm(pts - centre, axis=1)
+        if rs.mean() > 0 and (rs.std() / rs.mean()) < 0.020:
+            d_mm = 2.0 * float(rs.mean()) * mm_per_px
+            return ClassifiedProfile(
+                profile=Profile2D(
+                    shape="circle", width_mm=d_mm, depth_mm=d_mm,
+                    diameter_mm=d_mm,
+                ),
+                label=f"circle(r_stdev={rs.std()/rs.mean()*100:.1f}%)",
+            )
+
+    # 2. Regular polygon detection — try BEFORE the outline classifier.
     #    A regular octagon classifies as "polyline" in the outline pass
     #    (no arcs), but we want to emit it as a perfect n-gon. The
     #    cleaned PNG's gpt-image-2 cleanup tends to round polygon
@@ -509,8 +650,17 @@ def _profile_from_outline_polyline_bbox(
     #    leaves 11-15 verts on what should be an 8-gon. Retry at a
     #    sequence of larger epsilons until the vertex count drops into
     #    a regular-polygon range.
+    #    GATE: regular polygons inscribe in roughly-SQUARE bboxes (a
+    #    regular hex/oct/etc. has equal extent in X and Y). Reject if
+    #    aspect is outside [0.90, 1.11] — that's an oval / elongated
+    #    silhouette (e.g. a chamfered cylinder or arc_line outline) and
+    #    forcing it to a regular n-gon overshoots the true bbox by
+    #    20%+ when the polygon's circumscribed circle is bigger than
+    #    the smaller bbox dimension.
     import cv2 as _cv2
-    if smooth_polyline_px and len(smooth_polyline_px) >= 12:
+    if (not _has_real_arcs
+            and 0.90 <= aspect <= 1.11
+            and smooth_polyline_px and len(smooth_polyline_px) >= 12):
         dense_np = np.array(
             smooth_polyline_px, dtype=np.int32,
         ).reshape(-1, 1, 2)
@@ -558,6 +708,27 @@ def _profile_from_outline_polyline_bbox(
                     label=f"regular-{n}gon(eps={chosen_eps:.3f})",
                 )
 
+    # 2. CIRCLE detection (post-polygon). A 12-gon has radial stdev ~1.7%,
+    #    a 16-gon ~1.0%, a true circle ~0.3% (anti-aliasing only). The
+    #    threshold has to sit BELOW a 12-gon's stdev so a clean polygon
+    #    that escaped the regular-polygon detector above doesn't get
+    #    promoted to a circle and lose its faceted geometry. Tightened
+    #    0.025 → 0.010 after 117514's 12-gon top tier was being baked
+    #    into a smooth cylinder instead of a 12-sided post.
+    if smooth_polyline_px and len(smooth_polyline_px) >= 16:
+        pts = np.array(smooth_polyline_px, dtype=np.float64)
+        centre = pts.mean(axis=0)
+        rs = np.linalg.norm(pts - centre, axis=1)
+        if rs.mean() > 0 and (rs.std() / rs.mean()) < 0.010:
+            d_mm = 2.0 * float(rs.mean()) * mm_per_px
+            return ClassifiedProfile(
+                profile=Profile2D(
+                    shape="circle", width_mm=d_mm, depth_mm=d_mm,
+                    diameter_mm=d_mm,
+                ),
+                label=f"circle(r_stdev={rs.std()/rs.mean()*100:.1f}%)",
+            )
+
     if label == "circle":
         arcs = [s for s in outline if s.kind == "arc"]
         r_px = arcs[0].arc_radius_px or max(bw, bh) / 2.0
@@ -603,6 +774,17 @@ def _profile_from_outline_polyline_bbox(
                 arc_radius_mm=seg_models[-1].arc_radius_mm,
                 arc_ccw=seg_models[-1].arc_ccw,
             )
+        # Denoise the closed loop: collapse consecutive line segments that
+        # are nearly collinear and drop micro-segments. The segmenter often
+        # splits a long flange edge into 3-4 tiny pieces because the cleaned
+        # PNG has 1-2 px of edge jitter; the rebuild then renders that as
+        # a visibly faceted side. Threshold is 8° between consecutive line
+        # directions (~ a 12-sided regular polygon's interior angle), and
+        # any segment shorter than 1% of the bbox diagonal is absorbed
+        # into its predecessor.
+        seg_models = _collapse_collinear_segments(
+            seg_models, bbox_diag_mm=((bw ** 2 + bh ** 2) ** 0.5) * mm_per_px,
+        )
         return ClassifiedProfile(
             profile=Profile2D(
                 shape="arc_line",
@@ -612,8 +794,25 @@ def _profile_from_outline_polyline_bbox(
             ),
             label="arc_line",
         )
-    # polyline / empty fallback
+    # polyline / empty fallback. Simplify the dense smooth contour with
+    # approxPolyDP at a modest epsilon (~1.2% of the bbox diagonal) to
+    # cut a 100-vertex jittery polyline down to a 8-15 vertex clean
+    # outline. The visible noise on L-shapes and irregular flanges is
+    # this dense sampling rendered as facets — Douglas-Peucker keeps
+    # the corners and drops the 1-2 px wobbles along straight runs.
     src = smooth_polyline_px or []
+    if len(src) >= 8:
+        import cv2 as _cv2
+        dense = np.array(src, dtype=np.int32).reshape(-1, 1, 2)
+        perim = float(_cv2.arcLength(dense, closed=True))
+        if perim > 0:
+            approx = _cv2.approxPolyDP(
+                dense, perim * 0.012, closed=True,
+            ).reshape(-1, 2)
+            # Don't simplify below 4 vertices; a 3-vertex polyline can't
+            # carry meaningful geometry.
+            if len(approx) >= 4:
+                src = [(int(p[0]), int(p[1])) for p in approx]
     verts_mm = [
         ((p[0] - cx_px) * mm_per_px, -(p[1] - cy_px) * mm_per_px)
         for p in src
@@ -632,8 +831,19 @@ def _profile_from_outline_polyline_bbox(
 # ---------------------------------------------------------------------------
 # Stacked-extrude builder — one extrude per depth tier
 # ---------------------------------------------------------------------------
-_STACK_MIN_GAP_MM = 1.0          # tiers thinner than this collapse into the previous one
+# Tiers thinner than this collapse into the previous one. The threshold
+# scales with part Z so small parts (1-2mm tall) keep all their tiers
+# while huge parts (50mm+) still drop sub-millimetre histogram-jitter
+# peaks. Floor at 0.05mm so a degenerate 0-thickness tier still gets
+# culled even on the smallest parts.
+_STACK_MIN_GAP_FRAC = 0.05
+_STACK_MIN_GAP_FLOOR_MM = 0.05
+
+
+def _stack_min_gap_mm(part_z_mm: float) -> float:
+    return max(_STACK_MIN_GAP_FRAC * part_z_mm, _STACK_MIN_GAP_FLOOR_MM)
 _STACK_POLYGON_CONTAINMENT_FRAC = 0.85   # tier[i] needs this fraction of vertices inside tier[i-1]
+_STACK_BBOX_CONTAINMENT_FRAC = 0.90      # fallback when approxPolyDP makes a bad polygon
 
 
 def _polygon_contains_fraction(
@@ -657,8 +867,87 @@ def _polygon_contains_fraction(
     return inside / len(inner_polygon)
 
 
+def _bbox_contains_fraction(
+    outer_bbox: tuple[int, int, int, int],
+    inner_bbox: tuple[int, int, int, int],
+) -> float:
+    """Fraction of inner_bbox area covered by the overlap with outer_bbox.
+
+    This is a fallback for stacked-tier containment when the simplified
+    approxPolyDP loop self-intersects and pointPolygonTest under-reports
+    true containment.
+    """
+    ox, oy, ow, oh = outer_bbox
+    ix, iy, iw, ih = inner_bbox
+    if ow <= 0 or oh <= 0 or iw <= 0 or ih <= 0:
+        return 0.0
+    inter_x0 = max(ox, ix)
+    inter_y0 = max(oy, iy)
+    inter_x1 = min(ox + ow, ix + iw)
+    inter_y1 = min(oy + oh, iy + ih)
+    inter_w = max(inter_x1 - inter_x0, 0)
+    inter_h = max(inter_y1 - inter_y0, 0)
+    inter_area = float(inter_w * inter_h)
+    inner_area = float(iw * ih)
+    if inner_area <= 0.0:
+        return 0.0
+    return inter_area / inner_area
+
+
+def _bottom_tier_thickness_from_side_view(
+    side_views: list[ViewFeatures], frame: WorldFrame,
+) -> float | None:
+    """Estimate BIG-flange (bottom tier) thickness from a side-view
+    silhouette by finding the Z position where the silhouette WIDTH
+    drops sharply (transition from wide flange to narrow upper stack).
+    Returns thickness in mm, or None if no clear step is detected.
+    """
+    import cv2
+    import numpy as np
+    for vfeat in side_views:
+        if not vfeat or not vfeat.smooth_polyline_px:
+            continue
+        sx, sy, sw, sh = vfeat.bbox_px
+        if sw < 10 or sh < 10:
+            continue
+        # Render the silhouette outline as a binary mask in its own bbox.
+        verts_local = np.array(
+            [(p[0] - sx, p[1] - sy) for p in vfeat.smooth_polyline_px],
+            dtype=np.int32,
+        )
+        mask = np.zeros((sh + 2, sw + 2), dtype=np.uint8)
+        cv2.fillPoly(mask, [verts_local], 255)
+        # Width per Y row.
+        widths = (mask > 0).sum(axis=1).astype(np.int32)
+        if widths.max() == 0:
+            continue
+        max_w = int(widths.max())
+        # Walk from BOTTOM (high y) UP looking for the first row where
+        # width drops below 0.7 * max_w. The bottom span where width is
+        # close to max_w is the wide flange.
+        threshold = 0.7 * max_w
+        flange_top_y = sh
+        for y in range(sh - 1, -1, -1):
+            if widths[y] >= threshold:
+                flange_top_y = y
+            else:
+                break
+        # If the flange spans the entire side view, no step → no clear
+        # bottom tier; bail out.
+        if flange_top_y <= 1 or flange_top_y >= sh - 1:
+            continue
+        flange_height_px = sh - flange_top_y
+        if flange_height_px <= 0:
+            continue
+        # Side view's vertical axis IS the Z axis; convert px → mm.
+        return float(flange_height_px) * frame.mm_per_px
+    return None
+
+
 def _build_stacked_extrudes(
     view: ViewFeatures, frame: WorldFrame,
+    side_views: list[ViewFeatures] | None = None,
+    source_png: str | Path | None = None,
 ) -> tuple[list[SketchOperation], str]:
     """Convert per-tier regions into an ordered list of extrude operations.
 
@@ -669,7 +958,7 @@ def _build_stacked_extrudes(
     relative-depth gaps scaled by the part's Z extent.
 
     Two pre-flight gates protect against bogus stacks:
-      1. Drop tiers whose extrude distance < ``_STACK_MIN_GAP_MM`` (those
+      1. Drop tiers whose extrude distance < ``_stack_min_gap_mm(frame.z_mm)`` (those
          are histogram-jitter peaks on a near-flat region).
       2. Each tier (after the first) must be contained within the previous
          tier's bbox (allowing a small slack). If not, the part isn't a
@@ -679,13 +968,73 @@ def _build_stacked_extrudes(
     if not view.tier_regions:
         return [], "no tier regions"
 
+    # PRE-FILTER 1 — same-depth dedup. When the gpt-image-2 cleanup produces
+    # multiple disconnected regions at the same height (e.g. ring fragments
+    # split by a hole), `_extract_tier_regions` returns each as a separate
+    # tier with identical relative_depth. Keep only the LARGEST contour at
+    # each unique depth so a single tier per height feeds the stack.
+    by_depth: dict[float, TierRegion] = {}
+    for tier in view.tier_regions:
+        # Round to 3 decimals so jitter at the 4th-place doesn't keep duplicates.
+        key = round(tier.relative_depth, 3)
+        prev = by_depth.get(key)
+        if prev is None or tier.area_px > prev.area_px:
+            by_depth[key] = tier
+    deduped = sorted(by_depth.values(), key=lambda t: -t.relative_depth)
+
+    # PRE-FILTER 2 — monotonicity gate. For a stacked-extrude topology each
+    # tier (going FAR→NEAR / bottom→top) must be SMALLER than the one
+    # below it. A tier whose area is bigger than its predecessor is one of:
+    #   (a) the real next tier and the predecessor was a sliver of noise →
+    #       drop the predecessor and keep this one as the new floor;
+    #   (b) cleanup noise itself, sandwiched between two real tiers, that
+    #       happens to be smaller than the one BELOW but bigger than the
+    #       one we'd otherwise advance to;
+    #   (c) a counterbore step VISIBLE THROUGH a through-hole — predecessor
+    #       is the counterbore floor (deeper Z, smaller area), this tier
+    #       is the BOSS TOP annulus (higher Z, bigger area). The outside
+    #       only has two step-offs (flange + boss); the apparent third
+    #       "tier" is the counterbore floor seen through the hole. We
+    #       handle this by dropping the predecessor (the counterbore is
+    #       emitted as a CUT later by _detect_internal_counterbore) and
+    #       keeping THIS tier as the legitimate boss top.
+    # Heuristic: ≥ 2× the predecessor → (a); bbox of predecessor lies
+    # INSIDE this tier's bbox (concentric annulus pattern) → (c) drop the
+    # predecessor and keep this as the real boss top; else (b) drop.
+    monotonic: list[TierRegion] = []
+    # Tiers that were demoted from the stack because they were really a
+    # counterbore floor seen through the hole. Each entry is the dropped
+    # TierRegion paired with the BOSS tier it sits inside, so we can emit
+    # it as a recess cut on the boss top after the main stack is built.
+    counterbore_cuts: list[tuple[TierRegion, TierRegion]] = []
+    for tier in deduped:
+        if not monotonic:
+            monotonic.append(tier)
+            continue
+        if tier.area_px <= monotonic[-1].area_px:
+            monotonic.append(tier)
+        elif tier.area_px >= 2.0 * monotonic[-1].area_px:
+            # Predecessor was a noise sliver; replace it.
+            monotonic[-1] = tier
+        else:
+            prev = monotonic[-1]
+            prev_inside_tier = _bbox_contains_fraction(
+                tier.bbox_px, prev.bbox_px,
+            ) >= _STACK_BBOX_CONTAINMENT_FRAC
+            if prev_inside_tier:
+                # Counterbore-through-hole illusion: replace predecessor
+                # with this tier (the real boss top). The discarded one
+                # is re-emitted as a CUT later.
+                monotonic[-1] = tier
+                counterbore_cuts.append((prev, tier))
+    deduped = monotonic
+
     # Filter tiers by minimum extrude distance.
-    raw = view.tier_regions
     kept: list[TierRegion] = []
     prev_rel = 1.0
-    for tier in raw:
+    for tier in deduped:
         gap_mm = (prev_rel - tier.relative_depth) * frame.z_mm
-        if kept and gap_mm < _STACK_MIN_GAP_MM:
+        if kept and gap_mm < _stack_min_gap_mm(frame.z_mm):
             continue  # drop this one as a duplicate / near-zero extrude
         kept.append(tier)
         prev_rel = tier.relative_depth
@@ -693,16 +1042,24 @@ def _build_stacked_extrudes(
         return [], "no tiers after gap filter"
 
     # Polygon-based containment check: each tier i must have most of its
-    # vertices INSIDE the previous tier's polygon. bbox-only checks pass
-    # for laterally offset tiers (e.g. side-by-side bosses on a bar) that
-    # cannot actually stack.
+    # vertices INSIDE the previous tier's polygon. If approxPolyDP made a
+    # self-intersecting loop, fall back to strict bbox containment. Pure
+    # bbox checks are too weak as the primary gate because they can pass
+    # laterally offset tiers (e.g. side-by-side bosses on a bar).
     for i in range(1, len(kept)):
-        frac = _polygon_contains_fraction(
+        poly_frac = _polygon_contains_fraction(
             kept[i - 1].polygon_px, kept[i].polygon_px,
         )
-        if frac < _STACK_POLYGON_CONTAINMENT_FRAC:
+        bbox_frac = _bbox_contains_fraction(
+            kept[i - 1].bbox_px, kept[i].bbox_px,
+        )
+        if (
+            poly_frac < _STACK_POLYGON_CONTAINMENT_FRAC
+            and bbox_frac < _STACK_BBOX_CONTAINMENT_FRAC
+        ):
             return [], (
-                f"tier {i} only {frac*100:.0f}% inside tier {i-1} polygon — "
+                f"tier {i} only {poly_frac*100:.0f}% inside tier {i-1} polygon "
+                f"(bbox overlap {bbox_frac*100:.0f}%) — "
                 "stacked path doesn't apply, falling back to single extrude"
             )
 
@@ -710,25 +1067,228 @@ def _build_stacked_extrudes(
     base_cx_px = base_bx + base_bw / 2.0
     base_cy_px = base_by + base_bh / 2.0
 
+    # Pre-compute raw extrude heights from the luma-derived rel_d gaps,
+    # then NORMALIZE so the stack sums exactly to frame.z_mm. The luma
+    # sequence is non-monotonic in true depth (the colormap is
+    # non-monotonic in luma), so the absolute proportions are noisy —
+    # but their sum should still match the part's actual Z extent.
+    raw_heights: list[float] = []
+    prev_rel_h = 1.0
+    for tier in kept:
+        gap = max(prev_rel_h - tier.relative_depth, 0.0)
+        raw_heights.append(gap * frame.z_mm)
+        prev_rel_h = tier.relative_depth
+    raw_total = sum(raw_heights)
+    if raw_total > 0:
+        scale = frame.z_mm / raw_total
+        heights = [max(h * scale, _stack_min_gap_mm(frame.z_mm)) for h in raw_heights]
+    else:
+        heights = [_stack_min_gap_mm(frame.z_mm)] * len(kept)
+
+    # STL-ANCHORED HEIGHTS + XY BBOXES — sample the recon STL directly:
+    #   - tier-face peaks in the Z vertex histogram give tier transition
+    #     Z values (true depth, not the non-monotonic luma proxy);
+    #   - vertex X/Y bboxes within each Z band give true tier diameter
+    #     and centre offset (no cleanup-time distortion).
+    # Both are stored on `kept` for the per-tier loop below to use.
+    stl_xy_bboxes_mm: list[tuple[float, float, float, float, float, float]] | None = None
+    if source_png and len(kept) >= 2:
+        z_anchors = _tier_z_anchors_from_stl(source_png, len(kept))
+        if z_anchors and len(z_anchors) == len(kept) + 1:
+            # z_anchors are in STL world coords (DeepCAD's unit cube,
+            # roughly -0.5..0.5 — NOT mm). Compute raw gaps in STL units,
+            # rescale ALL of them to mm by frame.z_mm / total_span, THEN
+            # apply the per-tier min_gap floor (in mm). Doing the floor
+            # on STL-unit values before scaling makes every tier saturate
+            # to the floor (e.g. 0.07 < min_gap_mm), losing all relative
+            # proportions and dividing the part Z evenly across tiers.
+            raw_stl_heights = [
+                z_anchors[i + 1] - z_anchors[i] for i in range(len(kept))
+            ]
+            stl_total = sum(raw_stl_heights)
+            if stl_total > 0:
+                cal_scale = frame.z_mm / stl_total
+                heights = [
+                    max(h * cal_scale, _stack_min_gap_mm(frame.z_mm))
+                    for h in raw_stl_heights
+                ]
+                # Pull X/Y bboxes for each Z band, then convert STL→mm
+                # using the SAME cal_scale (the bbox calibration already
+                # forced the ratio between mm_per_unit on every axis).
+                stl_xy_raw = _stl_xy_bboxes_per_band(source_png, z_anchors)
+                if stl_xy_raw and len(stl_xy_raw) == len(kept):
+                    stl_xy_bboxes_mm = [
+                        (
+                            x_lo * cal_scale, x_hi * cal_scale,
+                            y_lo * cal_scale, y_hi * cal_scale,
+                            cx * cal_scale,   cy * cal_scale,
+                        )
+                        for x_lo, x_hi, y_lo, y_hi, cx, cy in stl_xy_raw
+                    ]
+    # SIDE-VIEW FALLBACK — when the STL slicer can't find clean
+    # transitions, fall back to the side-view silhouette anchor
+    # (which detects the BIG flange's wide-bottom span).
+    elif side_views and len(kept) >= 2:
+        bottom_h_mm = _bottom_tier_thickness_from_side_view(side_views, frame)
+        if bottom_h_mm and bottom_h_mm > _stack_min_gap_mm(frame.z_mm):
+            remaining = max(frame.z_mm - bottom_h_mm, _stack_min_gap_mm(frame.z_mm))
+            upper_raw_total = sum(heights[1:]) or 1.0
+            upper_scale = remaining / upper_raw_total
+            heights = (
+                [bottom_h_mm]
+                + [max(h * upper_scale, _stack_min_gap_mm(frame.z_mm)) for h in heights[1:]]
+            )
+
+    # Base centre from the STL XY bbox (tier 0) — this is the part's
+    # true centre in the same mm units as our tier dimensions. We use
+    # this to compute concentric position offsets for upper tiers so
+    # they sit centred over the BIG flange the way the original part
+    # does, ignoring any cleanup-time silhouette drift.
+    if stl_xy_bboxes_mm:
+        base_cx_mm = stl_xy_bboxes_mm[0][4]
+        base_cy_mm = stl_xy_bboxes_mm[0][5]
+    else:
+        base_cx_mm = base_cx_px * frame.mm_per_px
+        base_cy_mm = -base_cy_px * frame.mm_per_px
+
     operations: list[SketchOperation] = []
-    prev_rel = 1.0
     notes_parts: list[str] = []
-    for i, tier in enumerate(kept):
-        gap = max(prev_rel - tier.relative_depth, 0.0)
-        extrude_mm = max(gap * frame.z_mm, _STACK_MIN_GAP_MM)
-        cls = _profile_from_outline_polyline_bbox(
-            tier.outline, tier.smooth_polyline_px, tier.bbox_px, frame.mm_per_px,
-        )
+    upgrades = _harmonize_stacked_tier_classifications(kept, frame)
+    for i, (tier, extrude_mm) in enumerate(zip(kept, heights)):
+        if i in upgrades:
+            cls = upgrades[i]
+        else:
+            cls = _profile_from_outline_polyline_bbox(
+                tier.outline, tier.smooth_polyline_px, tier.bbox_px, frame.mm_per_px,
+            )
         bx, by, bw, bh = tier.bbox_px
         cx_px = bx + bw / 2.0
         cy_px = by + bh / 2.0
+        tier_bbox_area = float(bw * bh)
+        tier_fill = (tier.area_px / tier_bbox_area) if tier_bbox_area > 0 else 1.0
+        tier_aspect = bw / bh if bh else 0.0
+        is_thin_ring = (
+            tier_fill < 0.35
+            and 0.90 <= tier_aspect <= 1.11
+            and tier.area_px > 0
+        )
+
+        # STL-anchored XY for THIS tier (if available). Width/depth come
+        # straight from the STL vertex bbox in this Z band; centre is
+        # the bbox midpoint. These trump the cleaned-PNG silhouette
+        # values whenever the STL slice is reliable.
+        if stl_xy_bboxes_mm:
+            sx_lo, sx_hi, sy_lo, sy_hi, scx, scy = stl_xy_bboxes_mm[i]
+            stl_w_mm = max(sx_hi - sx_lo, 0.0)
+            stl_d_mm = max(sy_hi - sy_lo, 0.0)
+            stl_cx_mm = scx
+            stl_cy_mm = scy
+        else:
+            stl_w_mm = bw * frame.mm_per_px
+            stl_d_mm = bh * frame.mm_per_px
+            # Absolute centroid in the same PNG-derived mm frame as
+            # base_cx_mm / base_cy_mm. The position calc below subtracts
+            # base from stl_cx_mm to get the on-workplane offset; storing
+            # the absolute here keeps both branches consistent. Storing
+            # (cx_px - base_cx_px) here — an offset — combined with the
+            # downstream `stl_cx_mm - base_cx_mm` subtraction produces
+            # `offset - absolute`, which is what put tier 2 of 117514 /
+            # 000035 ~100mm off the part.
+            stl_cx_mm = cx_px * frame.mm_per_px
+            stl_cy_mm = -cy_px * frame.mm_per_px
+
+        # TOPMOST THIN-RING → CUT (recess), not extrude.
+        # When the LAST tier in the stack is a thin annular shape, it
+        # represents a CIRCULAR RECESS cut down from the previous tier's
+        # top face — not a raised disc.
+        # The CUT'S DIAMETER comes from the cleaned PNG bbox (the ring
+        # outline) — NOT the STL slab. The STL slab at the topmost Z
+        # samples the part's TOP face (including the rim around the
+        # ring), which would overestimate the recess opening.
+        #
+        # RIM HEIGHT FIX: the previous tier (the boss) was sized to extrude
+        # only up to the RECESS FLOOR (z_anchors[i] from STL). The actual
+        # part extends up to z_anchors[i+1] (top of the rim around the
+        # recess). To preserve true Z extent we extend the previous extrude
+        # by the cut depth — the solid boss reaches the rim, then we cut
+        # the recess down from that rim. Without this the rebuild is short
+        # by exactly the rim wall thickness.
+        if i > 0 and i == len(kept) - 1 and is_thin_ring:
+            d_mm = ((bw + bh) / 2.0) * frame.mm_per_px
+            pos_x_mm = (cx_px - base_cx_px) * frame.mm_per_px
+            pos_y_mm = -(cy_px - base_cy_px) * frame.mm_per_px
+            cut_depth = max(extrude_mm, _stack_min_gap_mm(frame.z_mm))
+            if operations and operations[-1].operation == "extrude":
+                prev_op = operations[-1]
+                operations[-1] = prev_op.model_copy(update={
+                    "distance_mm": prev_op.distance_mm + cut_depth,
+                })
+                # Reflect the height bump in the notes for the previous tier.
+                if notes_parts:
+                    notes_parts[-1] = notes_parts[-1].replace(
+                        f"h={prev_op.distance_mm:.1f}mm",
+                        f"h={prev_op.distance_mm + cut_depth:.1f}mm (rim-extended)",
+                    )
+            operations.append(SketchOperation(
+                order=i + 1,
+                plane=">Z",
+                profile=Profile2D(
+                    shape="circle", width_mm=d_mm, depth_mm=d_mm,
+                    diameter_mm=d_mm,
+                ),
+                operation="cut",
+                distance_mm=cut_depth,
+                direction="negative",
+                position_x=pos_x_mm,
+                position_y=pos_y_mm,
+            ))
+            notes_parts.append(f"tier{i}(circle CUT d={d_mm:.1f}mm, depth={cut_depth:.1f}mm)")
+            continue
+
+        # Non-topmost thin ring → snap to solid circle so the rebuild
+        # doesn't get a 30-vertex walled tube shape.
+        if cls.profile.shape in ("arc_line", "polyline") and is_thin_ring:
+            d_mm = (stl_w_mm + stl_d_mm) / 2.0
+            cls = ClassifiedProfile(
+                profile=Profile2D(
+                    shape="circle", width_mm=d_mm, depth_mm=d_mm,
+                    diameter_mm=d_mm,
+                ),
+                label=f"circle(thin-ring snap, fill={tier_fill:.2f})",
+            )
+
+        # OVERRIDE PRIMITIVE DIMENSIONS with STL bbox — circles and
+        # rectangles get their dimensions straight from the STL vertex
+        # extents in this tier's Z band. arc_line / polyline keep their
+        # cleaned-PNG vertex coords (those carry the actual outline
+        # SHAPE that we don't want to lose) but we'll center them via
+        # the STL centroid below.
+        if cls.profile.shape == "circle":
+            d_mm = (stl_w_mm + stl_d_mm) / 2.0
+            cls = ClassifiedProfile(
+                profile=Profile2D(
+                    shape="circle", width_mm=d_mm, depth_mm=d_mm,
+                    diameter_mm=d_mm,
+                ),
+                label=f"{cls.label} [STL d={d_mm:.1f}mm]",
+            )
+        elif cls.profile.shape == "rectangle":
+            cls = ClassifiedProfile(
+                profile=Profile2D(
+                    shape="rectangle",
+                    width_mm=stl_w_mm,
+                    depth_mm=stl_d_mm,
+                ),
+                label=f"{cls.label} [STL {stl_w_mm:.1f}x{stl_d_mm:.1f}mm]",
+            )
+
         if i == 0:
             pos_x_mm = 0.0
             pos_y_mm = 0.0
             plane = "XY"
         else:
-            pos_x_mm = (cx_px - base_cx_px) * frame.mm_per_px
-            pos_y_mm = -(cy_px - base_cy_px) * frame.mm_per_px
+            pos_x_mm = stl_cx_mm - base_cx_mm
+            pos_y_mm = stl_cy_mm - base_cy_mm
             plane = ">Z"
         operations.append(SketchOperation(
             order=i + 1,
@@ -741,7 +1301,50 @@ def _build_stacked_extrudes(
             position_y=pos_y_mm,
         ))
         notes_parts.append(f"tier{i}({cls.label}, h={extrude_mm:.1f}mm)")
-        prev_rel = tier.relative_depth
+
+    # COUNTERBORE CUTS — for each (counterbore_floor, boss_tier) pair
+    # captured during the monotonicity gate, emit a partial-depth cut from
+    # the boss top down to the counterbore floor. The diameter comes from
+    # the counterbore region's CV bbox; the depth comes from the rel_depth
+    # gap between the boss top and the counterbore floor, scaled by the
+    # part's Z extent.
+    if counterbore_cuts:
+        bos_extrude = next(
+            (op for op in reversed(operations) if op.operation == "extrude"),
+            None,
+        )
+        boss_face = bos_extrude.plane if bos_extrude else ">Z"
+        for cb_floor, boss_tier in counterbore_cuts:
+            bx, by, bw, bh = cb_floor.bbox_px
+            d_mm = ((bw + bh) / 2.0) * frame.mm_per_px
+            depth_norm = max(boss_tier.relative_depth - cb_floor.relative_depth, 0.0)
+            # relative_depth runs FAR (=1) → NEAR (=0); a counterbore
+            # floor is FARTHER (deeper) than the boss top, so its
+            # relative_depth is GREATER. depth_mm uses the absolute gap.
+            cb_depth_mm = max(
+                abs(cb_floor.relative_depth - boss_tier.relative_depth) * frame.z_mm,
+                _stack_min_gap_mm(frame.z_mm),
+            )
+            cb_cx_px = bx + bw / 2.0
+            cb_cy_px = by + bh / 2.0
+            cb_pos_x = (cb_cx_px - base_cx_px) * frame.mm_per_px
+            cb_pos_y = -(cb_cy_px - base_cy_px) * frame.mm_per_px
+            operations.append(SketchOperation(
+                order=len(operations) + 1,
+                plane=boss_face,
+                profile=Profile2D(
+                    shape="circle", width_mm=d_mm, depth_mm=d_mm,
+                    diameter_mm=d_mm,
+                ),
+                operation="cut",
+                distance_mm=cb_depth_mm,
+                direction="negative",
+                position_x=cb_pos_x,
+                position_y=cb_pos_y,
+            ))
+            notes_parts.append(
+                f"counterbore(circle d={d_mm:.1f}mm, depth={cb_depth_mm:.1f}mm)"
+            )
 
     return operations, "stacked: " + " + ".join(notes_parts)
 
@@ -982,21 +1585,60 @@ def _rank_axis(slices: AxisSlices) -> float:
     return float(significant_count)
 
 
-def _pick_slicing_axis(slices_dict: dict[str, AxisSlices]) -> AxisSlices | None:
+_PERP_VIEW_FOR_AXIS = {"Z": "Top", "Y": "Front", "X": "Right"}
+
+
+def _pick_slicing_axis(
+    slices_dict: dict[str, AxisSlices],
+    views: dict[str, ViewFeatures] | None = None,
+) -> AxisSlices | None:
     """Pick the axis with the strongest stacked-cross-section signal.
-    Returns None when no axis has a meaningful stacked structure (all
-    parts are uniform-cross-section or noisy)."""
-    best: tuple[float, AxisSlices] | None = None
+
+    When multiple axes pass _rank_axis the raw score alone isn't enough:
+    a stepped staircase like 002354 has monotonic area progressions BOTH
+    along its true stack axis (Z) AND along the side-projection axis (X),
+    and the side projection coincidentally scores higher because more of
+    its transitions cross the 15%-area threshold. To break ties we
+    consult the perpendicular base view's depth-tier count: Top reveals
+    Z-tiers, Front reveals Y-tiers, Right reveals X-tiers. CAD parts are
+    overwhelmingly Z-stacked, so when Z has perpendicular evidence
+    (Top.depth_tier_count >= 2) we prefer Z even if X scores higher in
+    raw transition count.
+
+    Returns None when no axis has a meaningful stacked structure."""
+    qualified: list[tuple[str, AxisSlices, float]] = []
     for axis_name in ("Z", "Y", "X"):
         s = slices_dict.get(axis_name)
         if s is None:
             continue
         score = _rank_axis(s)
-        if best is None or score > best[0]:
-            best = (score, s)
-    if best is None or best[0] < _SLICE_MIN_RANK_SCORE:
+        if score < _SLICE_MIN_RANK_SCORE:
+            continue
+        qualified.append((axis_name, s, score))
+
+    if not qualified:
         return None
-    return best[1]
+    if len(qualified) == 1:
+        return qualified[0][1]
+
+    # Multi-axis case: use perpendicular-view evidence + CAD-axis priority.
+    def has_perp_evidence(axis_name: str) -> bool:
+        if views is None:
+            return False
+        perp_name = _PERP_VIEW_FOR_AXIS.get(axis_name)
+        perp = views.get(perp_name) if perp_name else None
+        return bool(perp) and perp.depth_tier_count >= 2
+
+    evidenced = [t for t in qualified if has_perp_evidence(t[0])]
+    if len(evidenced) == 1:
+        return evidenced[0][1]
+    if evidenced:
+        # Multiple axes have evidence: prefer Z > Y > X (CAD convention).
+        priority = {"Z": 0, "Y": 1, "X": 2}
+        evidenced.sort(key=lambda t: priority[t[0]])
+        return evidenced[0][1]
+    # No perpendicular evidence at all — fall back to raw score.
+    return max(qualified, key=lambda t: t[2])[1]
 
 
 def _polyline_to_regular_polygon(
@@ -1115,24 +1757,47 @@ def _try_fit_regular_polygon(
         return None
     dense_np = np.array(smooth_polyline_px, dtype=np.int32).reshape(-1, 1, 2)
     perim = float(_cv2.arcLength(dense_np, closed=True))
-    # Try several epsilons, pick the one whose approxPolyDP gives N==n_target.
-    for eps_frac in (0.005, 0.012, 0.020, 0.030, 0.045):
-        eps = max(2.0, perim * eps_frac)
-        approx = _cv2.approxPolyDP(dense_np, eps, closed=True).reshape(-1, 2)
-        if len(approx) != n_target:
-            continue
-        pts = approx.astype(np.float64)
+
+    def _score(approx_pts: np.ndarray) -> tuple[float, float, float, tuple[float, float]] | None:
+        if len(approx_pts) != n_target:
+            return None
+        pts = approx_pts.astype(np.float64)
         ctr = pts.mean(axis=0)
         rs = np.linalg.norm(pts - ctr, axis=1)
         mean_r = rs.mean()
         if mean_r <= 0:
-            continue
-        score = float(rs.std() / mean_r)
-        if score > 0.20:    # too irregular even for forced fit
-            continue
+            return None
+        s = float(rs.std() / mean_r)
+        if s > 0.20:
+            return None
         v0 = pts[0] - ctr
-        rotation = float(np.arctan2(v0[1], v0[0]))
-        return (score, float(mean_r), rotation, (float(ctr[0]), float(ctr[1])))
+        return (s, float(mean_r), float(np.arctan2(v0[1], v0[0])),
+                (float(ctr[0]), float(ctr[1])))
+
+    # Pass 1: try the dense contour directly at several epsilons. Works
+    # for clean polylines where each side approximates one straight edge.
+    for eps_frac in (0.005, 0.012, 0.020, 0.030, 0.045, 0.060, 0.080):
+        eps = max(2.0, perim * eps_frac)
+        approx = _cv2.approxPolyDP(dense_np, eps, closed=True).reshape(-1, 2)
+        result = _score(approx)
+        if result is not None:
+            return result
+
+    # Pass 2: simplify via the CONVEX HULL first, then approxPolyDP. The
+    # convex hull strips the interior wobbles a noisy octagon picks up
+    # from cleanup-time rounded corners — what's left is the 8 corners
+    # plus 0-2 stray hull points. A modest epsilon on the hull then
+    # gives a clean N-gon for shapes whose dense polyline never reduced
+    # to exactly N at any of the pass-1 epsilons.
+    hull = _cv2.convexHull(dense_np)
+    if hull is not None and len(hull) >= n_target:
+        hull_perim = float(_cv2.arcLength(hull, closed=True))
+        for eps_frac in (0.005, 0.012, 0.020, 0.035, 0.060):
+            eps = max(2.0, hull_perim * eps_frac)
+            approx = _cv2.approxPolyDP(hull, eps, closed=True).reshape(-1, 2)
+            result = _score(approx)
+            if result is not None:
+                return result
     return None
 
 
@@ -1215,8 +1880,131 @@ def _harmonize_tier_classifications(
     return upgrades
 
 
+def _harmonize_stacked_tier_classifications(
+    tiers: list[TierRegion], frame: "WorldFrame",
+) -> dict[int, ClassifiedProfile]:
+    """Cross-tier consistency for per-view stacked tiers.
+
+    The per-view stack path can still classify one tier as a regular
+    octagon while a neighbouring tier falls through to ``polyline`` or,
+    worse, a near-circular cleanup pass makes the smallest tier trip the
+    circle detector. When one regular N dominates the stack, force-fit
+    the other tiers to that same N so a true stepped octagonal post
+    stays octagonal all the way up.
+    """
+    upgrades: dict[int, ClassifiedProfile] = {}
+    labels: list[str] = []
+    fit_by_tier: dict[int, dict[int, tuple[float, float, float, tuple[float, float]]]] = {}
+    counts: dict[int, int] = {}
+    score_sums: dict[int, float] = {}
+
+    for i, tier in enumerate(tiers):
+        cls = _profile_from_outline_polyline_bbox(
+            tier.outline, tier.smooth_polyline_px, tier.bbox_px, frame.mm_per_px,
+        )
+        labels.append(cls.label)
+        # Only polygon-like tiers are allowed to vote for a dominant N.
+        # Mixed arc/line silhouettes (D-cuts, obrounds, scalloped
+        # flanges) can often be crudely approximated by a regular n-gon
+        # but should not drag the whole stack into polygon mode.
+        if cls.profile.shape not in {"polyline", "circle"} and not cls.label.startswith("regular-"):
+            continue
+        for n in range(5, 13):
+            fit = _try_fit_regular_polygon(tier.smooth_polyline_px, n)
+            if fit is None:
+                continue
+            score, _, _, _ = fit
+            # Keep only high-confidence fits when voting for the stack's
+            # dominant symmetry. Loose fits are still useful once the
+            # dominant N is known, but they should not set it.
+            if score > 0.08:
+                continue
+            fit_by_tier.setdefault(i, {})[n] = fit
+            counts[n] = counts.get(n, 0) + 1
+            score_sums[n] = score_sums.get(n, 0.0) + score
+
+    # Also count any tier that was already classified as a regular N-gon.
+    for label in labels:
+        if not label.startswith("regular-"):
+            continue
+        try:
+            n = int(label.split("regular-")[1].split("gon")[0])
+        except (IndexError, ValueError):
+            continue
+        counts[n] = counts.get(n, 0) + 1
+
+    if not counts:
+        return upgrades
+
+    dominant_n, dominant_count = sorted(
+        counts.items(),
+        key=lambda x: (
+            -x[1],
+            score_sums.get(x[0], float("inf")) / max(x[1], 1),
+            -x[0],
+        ),
+    )[0]
+    if dominant_count < 2:
+        return upgrades
+
+    for i, (tier, label) in enumerate(zip(tiers, labels)):
+        if label.startswith(f"regular-{dominant_n}gon"):
+            continue
+        current_shape = _profile_from_outline_polyline_bbox(
+            tier.outline, tier.smooth_polyline_px, tier.bbox_px, frame.mm_per_px,
+        ).profile.shape
+        # Allow arc_line outlines to be promoted too when the rest of the
+        # stack is a clean N-gon — cleanup-time rounded corners give the
+        # segmenter ~2-3 spurious arcs along an octagon perimeter, and
+        # without this branch the largest tier stays as a 22-segment
+        # arc_line while the smaller tiers all become clean octagons.
+        # The follow-up fit-quality check (score ≤ 0.20) still rejects
+        # genuine curved shapes like D-cuts and obrounds.
+        if current_shape not in {"polyline", "circle", "arc_line"}:
+            continue
+        fit = fit_by_tier.get(i, {}).get(dominant_n)
+        if fit is None:
+            # Dominant N already exists elsewhere in the stack; allow a
+            # looser per-tier fit now when trying to upgrade stragglers.
+            fit = _try_fit_regular_polygon(tier.smooth_polyline_px, dominant_n)
+        if fit is None:
+            continue
+        score, r_px, rot_rad, ctr = fit
+        if score > 0.20:
+            continue
+        bx, by, bw, bh = tier.bbox_px
+        cx_px = bx + bw / 2.0
+        cy_px = by + bh / 2.0
+
+        def _to_mm(p):
+            return ((p[0] - cx_px) * frame.mm_per_px,
+                    -(p[1] - cy_px) * frame.mm_per_px)
+
+        verts_mm = []
+        for k in range(dominant_n):
+            ang = rot_rad + 2.0 * np.pi * k / dominant_n
+            vx_px = ctr[0] + r_px * np.cos(ang)
+            vy_px = ctr[1] + r_px * np.sin(ang)
+            verts_mm.append(_to_mm((vx_px, vy_px)))
+        xs = [v[0] for v in verts_mm]
+        ys = [v[1] for v in verts_mm]
+        upgrades[i] = ClassifiedProfile(
+            profile=Profile2D(
+                shape="polyline",
+                width_mm=max(xs) - min(xs),
+                depth_mm=max(ys) - min(ys),
+                vertices=verts_mm,
+            ),
+            label=f"regular-{dominant_n}gon(harmonised)",
+        )
+    return upgrades
+
+
 def _build_sliced_extrudes(
-    slices: AxisSlices, frame: WorldFrame,
+    slices: AxisSlices,
+    frame: WorldFrame,
+    base_view: ViewFeatures | None = None,
+    through_hole_diameters_mm: list[float] | None = None,
 ) -> tuple[list[SketchOperation], str]:
     """Convert per-zone cross-sections into ordered extrude operations.
 
@@ -1251,13 +2039,32 @@ def _build_sliced_extrudes(
     # arc_line + octagon".
     upgrades = _harmonize_tier_classifications(slices.zones, frame)
 
+    # Tier-height accounting: extrude each tier 1:1 with its actual
+    # Z extent in the part. Tier 0 starts at the FIRST zone's start
+    # (where the part actually begins, NOT at rel=0 which is below
+    # the part). Each subsequent tier extends from previous zone's
+    # end to its own zone end. Total height = part's actual Z extent.
+    first_start_norm = slices.zones[0].start_norm if slices.zones else 0.0
+    prev_end_norm = first_start_norm
     for i, zone in enumerate(slices.zones):
         cs = zone.cross_section
-        height_norm = max(zone.end_norm - zone.start_norm, 0.001)
+        tier_top_norm = zone.end_norm
+        height_norm = max(tier_top_norm - prev_end_norm, 0.001)
         height_mm = max(height_norm * axis_total_mm, 0.5)
+        prev_end_norm = tier_top_norm
 
         if i in upgrades:
             cls = upgrades[i]
+        elif i == 0 and base_view is not None and base_view.outline:
+            # CRITICAL: tier 0 (the BASE) uses the per-view OpenCV
+            # outline directly — that's the cleanest extraction. The
+            # slice cross-section can have small contour-finding
+            # artifacts at the silhouette boundary; the per-view outline
+            # is the same shape but cleaner.
+            cls = _profile_from_outline_polyline_bbox(
+                base_view.outline, base_view.smooth_polyline_px,
+                base_view.bbox_px, frame.mm_per_px,
+            )
         else:
             cls = _profile_from_outline_polyline_bbox(
                 cs.outline, cs.smooth_polyline_px, cs.bbox_px, frame.mm_per_px,
@@ -1270,15 +2077,20 @@ def _build_sliced_extrudes(
             pos_x_mm = 0.0
             pos_y_mm = 0.0
             plane = base_plane
+            # Track the FIRST tier's bbox so subsequent tiers can snap
+            # against it (the workplane is on tier 0's top face).
+            base_bbox_min_dim = min(cbw, cbh)
         else:
             dx_px = cx_px - prev_cx_px
             dy_px = cy_px - prev_cy_px
             # Concentric snap: if the centre-to-centre offset is within
-            # _SLICE_CONCENTRIC_TOL_FRAC of the previous tier's smaller
-            # bbox dimension, treat as exactly concentric. Stops sub-
-            # pixel anti-aliasing wobble from drifting the stack.
-            prev_min_dim = min(cbw, cbh)
-            tol_px = prev_min_dim * _SLICE_CONCENTRIC_TOL_FRAC
+            # _SLICE_CONCENTRIC_TOL_FRAC of the LARGER of (current or
+            # base tier) min-dim, treat as exactly concentric. Using the
+            # base tier's size is more permissive — a small upper tier
+            # whose centroid is pulled off by an asymmetric feature (e.g.
+            # 117514's loop tab) still snaps to the central axis when
+            # the offset is small relative to the part's overall scale.
+            tol_px = max(min(cbw, cbh), base_bbox_min_dim) * _SLICE_CONCENTRIC_TOL_FRAC
             if abs(dx_px) < tol_px:
                 dx_px = 0.0
             if abs(dy_px) < tol_px:
@@ -1302,27 +2114,66 @@ def _build_sliced_extrudes(
         prev_cx_px = cx_px
         prev_cy_px = cy_px
 
-        # Interior holes in this cross-section become cuts through the
-        # zone (cylindrical bores, slots inside the outer outline).
-        for hole in cs.holes:
-            # Classify the hole's outline (circular hole = clean circle profile).
-            hcls = _profile_from_outline_polyline_bbox(
-                hole.outline, hole.polygon_px, hole.bbox_px, frame.mm_per_px,
+        # Interior holes in this cross-section: real interior features
+        # (counterbores, recesses, blind bores) need to be emitted, but
+        # gpt-image-2 cleanup also leaves pinhole / boundary-clipping
+        # artifacts that look like fake holes. Discriminator:
+        #   - bbox aspect close to 1 (real recesses are roughly round)
+        #   - position not at the silhouette boundary (avoid clipping)
+        #   - substantial area relative to the tier (≥ 3%)
+        # When a hole passes, emit as a clean CIRCLE of equivalent
+        # diameter so the rebuild is parametric (no jagged edges).
+        # Only emit slice-cross-section holes from the TOP tier (counter-
+        # bores / surface recesses live there). Lower tiers' interior
+        # "holes" are just the through-hole appearing in the cross-
+        # section at that Z depth — emitting them creates duplicate cuts
+        # that conflict with the per-view-matched through-hole. The
+        # per-view through-hole (Top↔Bottom matched) is emitted later as
+        # one clean cut through the full stack.
+        is_top_tier = (i == len(slices.zones) - 1)
+        cbx, cby, cbw, cbh = cs.bbox_px
+        for hole in cs.holes if is_top_tier else []:
+            bx_h, by_h, bw_h, bh_h = hole.bbox_px
+            aspect_h = bw_h / bh_h if bh_h else 0
+            if aspect_h < 0.6 or aspect_h > 1.7:
+                continue           # weird-shaped → clipping artifact
+            if hole.area_px / cs.area_px < 0.03:
+                continue           # too small relative to the tier
+            # Reject holes whose centre is too close to the silhouette
+            # boundary (boundary clipping artifacts).
+            margin_x = 0.10 * cbw
+            margin_y = 0.10 * cbh
+            if (hole.centre_xy[0] < cbx + margin_x
+                    or hole.centre_xy[0] > cbx + cbw - margin_x
+                    or hole.centre_xy[1] < cby + margin_y
+                    or hole.centre_xy[1] > cby + cbh - margin_y):
+                continue
+            d_mm = hole.equivalent_diameter_px * frame.mm_per_px
+            # DEDUP: skip slice holes that duplicate a per-view-matched
+            # through-hole. The per-view matching produces a single clean
+            # cut through the entire stack; emitting the same hole again
+            # at every tier creates conflicting geometry that fills the
+            # bore back in (boss above tier 0's hole-cut covers the hole).
+            if through_hole_diameters_mm:
+                hpx, hpy = hole.centre_xy
+                # The per-view through-hole snaps to the tier centre after
+                # the constraint pass; here we check raw distance.
+                centre_dist_mm = (
+                    ((hpx - cx_px) ** 2 + (hpy - cy_px) ** 2) ** 0.5
+                ) * frame.mm_per_px
+                near_centre = centre_dist_mm < 0.10 * d_mm
+                duplicates_through = any(
+                    abs(d_mm - tdm) / max(tdm, 0.001) < 0.10
+                    for tdm in through_hole_diameters_mm
+                )
+                if near_centre and duplicates_through:
+                    continue
+            profile = Profile2D(
+                shape="circle", width_mm=d_mm, depth_mm=d_mm, diameter_mm=d_mm,
             )
-            # Position relative to THIS zone's cross-section centre.
-            hpx = hole.centre_xy[0]
-            hpy = hole.centre_xy[1]
+            hpx, hpy = hole.centre_xy
             hpos_x_mm = (hpx - cx_px) * frame.mm_per_px
             hpos_y_mm = -(hpy - cy_px) * frame.mm_per_px
-            # If the hole came back as polyline but is roughly circular,
-            # prefer a circle profile sized by equivalent diameter.
-            if hcls.label == "polyline" and hole.circularity > 0.7:
-                d_mm = hole.equivalent_diameter_px * frame.mm_per_px
-                profile = Profile2D(
-                    shape="circle", width_mm=d_mm, depth_mm=d_mm, diameter_mm=d_mm,
-                )
-            else:
-                profile = hcls.profile
             operations.append(SketchOperation(
                 order=order,
                 plane=face_top,
@@ -1334,7 +2185,7 @@ def _build_sliced_extrudes(
                 position_y=hpos_y_mm,
             ))
             order += 1
-            notes_parts.append(f"z{i}.hole({hcls.label})")
+            notes_parts.append(f"z{i}.hole(circle d={d_mm:.1f})")
 
     return operations, f"sliced[{slices.axis}]: " + " + ".join(notes_parts)
 
@@ -1533,9 +2384,521 @@ def _apply_geometric_constraints(
     return snapped
 
 
+from pathlib import Path  # noqa: E402
+
+
+def _stl_z_slice_areas(
+    png_path: str | Path, n_slices: int = 80,
+) -> tuple[list[float], list[float]] | None:
+    """Sample the recon STL directly along Z and return (z_bin_centres_mm,
+    vertex_counts_per_bin) lists. We bin the mesh's vertices by Z height
+    (rather than running planar sections, which fail on non-watertight
+    point-cloud reconstructions). The vertex count per Z bin is a strong
+    proxy for cross-section size: planar tier faces concentrate many
+    vertices at one Z, vertical walls spread them thinly. Transitions
+    in the count profile mark tier boundaries in actual STL space —
+    far more reliable than luma proportions from the cleaned PNG.
+    """
+    from pathlib import Path as _Path
+    import re as _re
+    p = _Path(png_path)
+    m = _re.match(r"(deepcadimg_\d+)_(?:geometry_clean|clean_input)\.png", p.name)
+    if not m:
+        return None
+    sid = m.group(1)
+    import json as _json
+    manifest_path = p.parent.parent / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        manifest = _json.loads(manifest_path.read_text())
+    except Exception:
+        return None
+    entry = next((e for e in manifest if e.get("sample_id") == sid), None)
+    if not entry or not entry.get("recon_noisy_stl"):
+        return None
+    stl_path = p.parent.parent / entry["recon_noisy_stl"]
+    if not stl_path.exists():
+        return None
+    try:
+        import trimesh
+        import numpy as np
+        mesh = trimesh.load(str(stl_path))
+        if hasattr(mesh, "is_empty") and mesh.is_empty:
+            return None
+        verts = np.asarray(mesh.vertices)
+        if verts.size == 0:
+            return None
+        z_vals = verts[:, 2]
+        z_lo, z_hi = float(z_vals.min()), float(z_vals.max())
+        if z_hi <= z_lo:
+            return None
+        # Histogram vertex counts in n_slices Z bins. Triangle-mesh
+        # tier faces concentrate vertices at a fixed Z (lots of
+        # triangles tessellate the planar cap), so high-count bins
+        # mark planar tiers and gaps mark the vertical walls between.
+        counts, edges = np.histogram(z_vals, bins=n_slices, range=(z_lo, z_hi))
+        centres = (edges[:-1] + edges[1:]) / 2.0
+        return ([float(c) for c in centres], [float(c) for c in counts])
+    except Exception:
+        return None
+
+
+def _stl_xy_bboxes_per_band(
+    png_path: str | Path, z_anchors: list[float],
+) -> list[tuple[float, float, float, float, float, float]] | None:
+    """For each tier defined by Z range [z_anchors[i], z_anchors[i+1]],
+    sample a THIN SLAB just below the tier's top (its next-anchor Z) and
+    return (x_min, x_max, y_min, y_max, x_centre, y_centre) of the STL
+    vertices in that slab — all in STL world units.
+
+    Why a slab below the top, not the full band: the tier's top face is
+    a planar cap with the tier's TRUE cross-section. Its bottom edge
+    coincides with the previous tier's top face — wider than this tier.
+    Sampling the full band would include the previous tier's wide top
+    face and overstate this tier's diameter (e.g. the MIDDLE disc would
+    measure as the BIG flange because the BIG flange's top face vertices
+    sit at the bottom of the MIDDLE Z band).
+    """
+    from pathlib import Path as _Path
+    import re as _re
+    p = _Path(png_path)
+    m = _re.match(r"(deepcadimg_\d+)_(?:geometry_clean|clean_input)\.png", p.name)
+    if not m:
+        return None
+    sid = m.group(1)
+    import json as _json
+    manifest_path = p.parent.parent / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        manifest = _json.loads(manifest_path.read_text())
+    except Exception:
+        return None
+    entry = next((e for e in manifest if e.get("sample_id") == sid), None)
+    if not entry or not entry.get("recon_noisy_stl"):
+        return None
+    stl_path = p.parent.parent / entry["recon_noisy_stl"]
+    if not stl_path.exists():
+        return None
+    try:
+        import trimesh
+        import numpy as np
+        mesh = trimesh.load(str(stl_path))
+        verts = np.asarray(mesh.vertices)
+        if verts.size == 0:
+            return None
+        # Thin slab thickness = SLAB_FRAC of each band's height. 15% gives
+        # enough vertices to define the bbox while staying clear of the
+        # adjacent tier's wider face.
+        SLAB_FRAC = 0.15
+        out: list[tuple[float, float, float, float, float, float]] = []
+        for i in range(len(z_anchors) - 1):
+            z_lo, z_hi = float(z_anchors[i]), float(z_anchors[i + 1])
+            band_h = z_hi - z_lo
+            # Slab from (z_top - slab_h) up to z_top, where slab_h is
+            # SLAB_FRAC of the band height (or a small floor).
+            slab_h = max(band_h * SLAB_FRAC, abs(band_h) * 0.05, 1e-3)
+            slab_lo = z_hi - slab_h
+            slab_hi = z_hi
+            slab = verts[(verts[:, 2] >= slab_lo) & (verts[:, 2] <= slab_hi)]
+            if slab.size == 0:
+                # Slab missed all vertices — widen progressively.
+                for widen in (2.0, 4.0, 8.0):
+                    slab_lo2 = z_hi - slab_h * widen
+                    slab = verts[(verts[:, 2] >= slab_lo2) & (verts[:, 2] <= slab_hi)]
+                    if slab.size > 0:
+                        break
+            if slab.size == 0:
+                # Fall back to the full band, then to the entire mesh.
+                slab = verts[(verts[:, 2] >= z_lo) & (verts[:, 2] <= z_hi)]
+            if slab.size == 0:
+                slab = verts
+            x_lo, x_hi = float(slab[:, 0].min()), float(slab[:, 0].max())
+            y_lo, y_hi = float(slab[:, 1].min()), float(slab[:, 1].max())
+            cx = (x_lo + x_hi) / 2.0
+            cy = (y_lo + y_hi) / 2.0
+            out.append((x_lo, x_hi, y_lo, y_hi, cx, cy))
+        return out
+    except Exception:
+        return None
+
+
+def _tier_z_anchors_from_stl(
+    png_path: str | Path, n_tiers: int,
+) -> list[float] | None:
+    """Find n_tiers+1 Z anchors marking tier boundaries [z_min, ...,
+    z_max] from the STL vertex distribution.
+
+    Strategy: planar tier-top faces concentrate many vertices at one Z
+    (the cap is tessellated into many triangles). Locate the top peaks
+    in the vertex-count histogram, drop peaks at the very bottom (the
+    part's bottom face is not a tier transition), and use the surviving
+    peaks as tier-top Z values. The first tier spans [z_min, peak_1],
+    the second [peak_1, peak_2], etc.
+    """
+    sliced = _stl_z_slice_areas(png_path)
+    if sliced is None:
+        return None
+    zs, counts = sliced
+    if len(zs) < 8 or n_tiers < 1:
+        return None
+    import numpy as np
+    c = np.array(counts, dtype=np.float32)
+    if c.max() <= 0:
+        return None
+    z_min, z_max = float(zs[0]), float(zs[-1])
+    z_span = z_max - z_min
+    if z_span <= 0:
+        return None
+    # Find local maxima in the count profile. A bin counts as a peak
+    # if it has more vertices than both adjacent bins. Then sort by
+    # vertex count and filter:
+    #   - drop peaks in the lowest 10% of Z (those are the part's
+    #     bottom face, not a tier-top transition).
+    #   - drop peaks in the highest 5% of Z (the part's topmost face is
+    #     the LAST tier's top by definition — already at z_max).
+    peaks: list[tuple[int, float]] = []  # (idx, count)
+    for i in range(1, len(c) - 1):
+        if c[i] > c[i - 1] and c[i] > c[i + 1]:
+            peaks.append((i, float(c[i])))
+    if not peaks:
+        return None
+    peaks.sort(key=lambda p: -p[1])
+    drop_low_z = z_min + 0.10 * z_span
+    drop_high_z = z_min + 0.95 * z_span
+    candidates = [
+        (idx, ct) for idx, ct in peaks
+        if drop_low_z <= zs[idx] <= drop_high_z
+    ]
+    n_needed = max(n_tiers - 1, 0)
+    if n_needed == 0:
+        return [z_min, z_max]
+    # Take the strongest n_needed candidates by vertex count, then
+    # sort by Z so anchors come back in monotonic order.
+    selected = sorted(candidates[:n_needed], key=lambda p: zs[p[0]])
+    if len(selected) < n_needed:
+        return None
+    z_breaks = [float(zs[idx]) for idx, _ in selected]
+    return [z_min] + z_breaks + [z_max]
+
+
+def _stl_bbox_for_calibration(png_path: str | Path) -> tuple[float, float, float] | None:
+    """Read the source recon STL's true world bbox so the rebuild can
+    use 1:1 dimensions instead of the renderer's NORMALISE_LONGEST_MM
+    (100 mm) approximation. Returns (x_mm, y_mm, z_mm) or None.
+
+    The cleaned PNG lives next to a manifest that points to its
+    recon STL — we look that up by sample id pattern.
+    """
+    import re, json
+    p = Path(png_path)
+    m = re.match(r"(deepcadimg_\d+)_(?:geometry_clean|clean_input)\.png", p.name)
+    if not m:
+        return None
+    sid = m.group(1)
+    manifest_path = p.parent.parent / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except Exception:
+        return None
+    entry = next((e for e in manifest if e.get("sample_id") == sid), None)
+    if not entry or not entry.get("recon_noisy_stl"):
+        return None
+    stl_path = p.parent.parent / entry["recon_noisy_stl"]
+    if not stl_path.exists():
+        return None
+    try:
+        import trimesh
+        mesh = trimesh.load(str(stl_path))
+        bx = mesh.bounding_box.extents
+        return (float(bx[0]), float(bx[1]), float(bx[2]))
+    except Exception:
+        return None
+
+
+def _stl_verts_projected_mm(
+    png_path: str | Path, base_plane: str, frame: "WorldFrame",
+) -> "np.ndarray | None":
+    """Load the recon STL, project its vertices onto the base plane and
+    rescale to mm using the same geometric-mean calibration as the rest
+    of the rebuild. Returns an (N, 2) array of (u, v) coords in mm or
+    None if the STL/manifest is missing.
+
+    Plane mapping:
+        XY -> (x, y), extrude axis = Z
+        XZ -> (x, z), extrude axis = Y
+        YZ -> (y, z), extrude axis = X
+    The 2D coordinate convention matches the sketch frame used by
+    _outline_to_arc_line_profile (image-y flipped to CAD-y on XY only,
+    other planes keep STL signs).
+    """
+    import re, json
+    p = Path(png_path)
+    m = re.match(r"(deepcadimg_\d+)_(?:geometry_clean|clean_input)\.png", p.name)
+    if not m:
+        return None
+    sid = m.group(1)
+    manifest_path = p.parent.parent / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except Exception:
+        return None
+    entry = next((e for e in manifest if e.get("sample_id") == sid), None)
+    if not entry or not entry.get("recon_noisy_stl"):
+        return None
+    stl_path = p.parent.parent / entry["recon_noisy_stl"]
+    if not stl_path.exists():
+        return None
+    try:
+        import trimesh
+        mesh = trimesh.load(str(stl_path))
+        verts = np.asarray(mesh.vertices)
+        if verts.size == 0:
+            return None
+        # Geometric-mean scale: same calibration as _world_frame's STL
+        # branch, so the projected mm values line up with arc centres
+        # already computed in mm.
+        ext = mesh.bounding_box.extents
+        true_gm = float((ext[0] * ext[1] * ext[2]) ** (1.0 / 3.0)) or 1.0
+        unit_to_mm = NORMALISE_GEOMETRIC_MEAN_MM / true_gm
+        verts_mm = verts * unit_to_mm
+        # Centre on the part's bbox centre (mm) so the projected coords
+        # match arc centres expressed in bbox-centred frame.
+        bbox_min = (np.asarray(mesh.bounds[0])) * unit_to_mm
+        bbox_max = (np.asarray(mesh.bounds[1])) * unit_to_mm
+        centre = (bbox_min + bbox_max) / 2.0
+        verts_mm = verts_mm - centre
+        if base_plane == "XY":
+            return np.column_stack([verts_mm[:, 0], verts_mm[:, 1]])
+        if base_plane == "XZ":
+            return np.column_stack([verts_mm[:, 0], verts_mm[:, 2]])
+        if base_plane == "YZ":
+            return np.column_stack([verts_mm[:, 1], verts_mm[:, 2]])
+        return None
+    except Exception:
+        return None
+
+
+def _arc_centre_for_radius(
+    start: tuple[float, float], end: tuple[float, float],
+    radius: float, original_centre: tuple[float, float],
+) -> tuple[float, float] | None:
+    """Position an arc centre on the perpendicular bisector of (start,
+    end) so that |start - centre| = |end - centre| = radius. Pick the
+    side that matches the original centre (keeps the arc curving the
+    same way as before). Returns None if the chord is longer than 2 ×
+    radius (arc geometrically impossible at the requested size)."""
+    s = np.array(start, dtype=np.float64)
+    e = np.array(end, dtype=np.float64)
+    mid = (s + e) / 2.0
+    chord = float(np.linalg.norm(e - s))
+    if chord <= 1e-9 or chord >= 2 * radius:
+        return None
+    h = float(np.sqrt(max(radius ** 2 - (chord / 2.0) ** 2, 0.0)))
+    dir_chord = (e - s) / chord
+    perp = np.array([-dir_chord[1], dir_chord[0]])
+    c1 = mid + perp * h
+    c2 = mid - perp * h
+    oc = np.array(original_centre, dtype=np.float64)
+    return tuple(c1.tolist()) if (
+        np.linalg.norm(c1 - oc) < np.linalg.norm(c2 - oc)
+    ) else tuple(c2.tolist())
+
+
+def _override_arc_radii_from_stl(
+    profile: "Profile2D", source_png: str | Path,
+    base_plane: str, frame: "WorldFrame",
+    scale_log: list | None = None,
+) -> "Profile2D":
+    """Restore asymmetric arc radii on an arc_line base profile by
+    sampling the noisy recon STL at each arc's centre.
+
+    The cleaned PNG averages similar-looking features (e.g. two
+    dumbbell ends of slightly different sizes) into near-identical
+    silhouettes, so the segmented arcs come back with similar radii.
+    The noisy STL still has the original sizes — projecting it onto
+    the base plane lets us measure the LOCAL part extent around each
+    arc centre and rebuild the arc to that scale.
+
+    The arc endpoints are held fixed (they sit on lines that must
+    still meet at the same place), and the centre is repositioned on
+    the perpendicular bisector of (start, end) to keep the arc
+    well-formed. If the required radius is shorter than half the
+    chord, the override is skipped for that arc.
+    """
+    if profile.shape != "arc_line" or not profile.arc_line_segments:
+        return profile
+    verts2d = _stl_verts_projected_mm(source_png, base_plane, frame)
+    if verts2d is None or len(verts2d) < 16:
+        return profile
+    # Identify the long axis of the projection — for a dumbbell-like
+    # part the long axis runs through both ball centres, and each
+    # ball's RADIUS is the local extent PERPENDICULAR to that axis.
+    # Sampling along the long axis avoids contaminating the ball
+    # radius with material from the connecting rod (which would
+    # otherwise dominate any direct distance-from-centre measure).
+    proj_extent = verts2d.max(axis=0) - verts2d.min(axis=0)
+    long_axis_idx = 0 if proj_extent[0] >= proj_extent[1] else 1
+    perp_axis_idx = 1 - long_axis_idx
+
+    new_segs: list[ArcLineSegment] = []
+    overrides = 0
+    for s in profile.arc_line_segments:
+        if (s.kind != "arc" or s.arc_centre is None
+                or not s.arc_radius_mm):
+            new_segs.append(s)
+            continue
+        r_old = float(s.arc_radius_mm)
+        centre = np.array(s.arc_centre, dtype=np.float64)
+        # Window along the long axis: ±r_old captures just the ball,
+        # not the connecting rod. The connecting rod's vertices sit
+        # FURTHER along the long axis than r_old from the ball centre.
+        window = r_old
+        mask = np.abs(verts2d[:, long_axis_idx] - centre[long_axis_idx]) < window
+        local = verts2d[mask]
+        if len(local) < 8:
+            new_segs.append(s)
+            continue
+        # Ball radius = local perpendicular extent / 2 (the ball is
+        # approximately circular, so its perpendicular-axis range
+        # equals its diameter).
+        perp_lo = float(local[:, perp_axis_idx].min())
+        perp_hi = float(local[:, perp_axis_idx].max())
+        r_new = (perp_hi - perp_lo) / 2.0
+        # Sanity-bound: keep within 0.5x..2.0x of the original arc
+        # radius. Bigger jumps usually mean the projection picked up
+        # an unrelated tier (multi-Z-level features) and we'd warp
+        # the loop badly.
+        if r_new < r_old * 0.5 or r_new > r_old * 2.0:
+            new_segs.append(s)
+            continue
+        new_centre = _arc_centre_for_radius(
+            s.start, s.end, r_new, s.arc_centre,
+        )
+        if new_centre is None:
+            new_segs.append(s)
+            continue
+        new_segs.append(ArcLineSegment(
+            kind="arc", start=s.start, end=s.end,
+            arc_centre=new_centre, arc_radius_mm=r_new,
+            arc_ccw=s.arc_ccw,
+        ))
+        if scale_log is not None and r_old > 0:
+            # Record the per-arc scale so callers can rescale matching
+            # features (e.g. through-holes drilled through this ball)
+            # by the same factor.
+            scale_log.append({
+                "centre": tuple(s.arc_centre),
+                "scale": r_new / r_old,
+                "long_axis_idx": long_axis_idx,
+            })
+        overrides += 1
+    if overrides == 0:
+        return profile
+    return profile.model_copy(update={"arc_line_segments": new_segs})
+
+
+_OPPOSITE_VIEW = {
+    "Top": "Bottom", "Bottom": "Top",
+    "Front": "Back", "Back": "Front",
+    "Right": "Left", "Left": "Right",
+}
+
+
+def _drop_unpaired_silhouette_holes(views: dict[str, ViewFeatures]) -> dict[str, ViewFeatures]:
+    """Defense against gpt-image-2 hallucinating a circular hole into the
+    silhouette half of a single view.
+
+    A real through-hole shows as an interior_hole in BOTH end-on views
+    (Top+Bottom, Front+Back, Right+Left). A hole that only appears in one
+    of the pair is either a hallucination by cleanup or a real blind
+    feature; either way it should not break slice-axis volume
+    reconstruction. We drop any interior_hole whose opposite view has no
+    matching hole at the mirrored relative position.
+    """
+    cleaned: dict[str, ViewFeatures] = {}
+    for vname, vfeat in views.items():
+        opp_name = _OPPOSITE_VIEW.get(vname)
+        opp = views.get(opp_name) if opp_name else None
+        if not vfeat.interior_holes or opp is None or not opp.interior_holes:
+            # No holes here, or opposite view is missing / has zero holes
+            # -> drop ALL holes on this view if opp has none and we have
+            # any (defensive: keep when both empty so we don't churn).
+            if vfeat.interior_holes and (opp is None or not opp.interior_holes):
+                cleaned[vname] = replace(vfeat, interior_holes=[])
+            else:
+                cleaned[vname] = vfeat
+            continue
+        # Both views have at least one hole. Keep only holes on this view
+        # that have a matching hole on the opposite view at a near-mirror
+        # relative position (10% panel-size tolerance).
+        bx_a, by_a, bw_a, bh_a = vfeat.bbox_px
+        cx_a, cy_a = bx_a + bw_a / 2.0, by_a + bh_a / 2.0
+        bx_b, by_b, bw_b, bh_b = opp.bbox_px
+        cx_b, cy_b = bx_b + bw_b / 2.0, by_b + bh_b / 2.0
+        tol = 0.10 * max(bw_a, bh_a, bw_b, bh_b, 1.0)
+        kept: list = []
+        for ha in vfeat.interior_holes:
+            ra = (ha.centre_xy[0] - cx_a, ha.centre_xy[1] - cy_a)
+            matched = False
+            for hb in opp.interior_holes:
+                rb = (hb.centre_xy[0] - cx_b, hb.centre_xy[1] - cy_b)
+                # Try identity and mirror flips along U/V (opposite view
+                # may have axis flipped depending on the ortho convention).
+                for sx in (1.0, -1.0):
+                    for sy in (1.0, -1.0):
+                        d = ((ra[0] - sx * rb[0]) ** 2
+                             + (ra[1] - sy * rb[1]) ** 2) ** 0.5
+                        if d < tol:
+                            matched = True
+                            break
+                    if matched:
+                        break
+                if matched:
+                    break
+            if matched:
+                kept.append(ha)
+        cleaned[vname] = replace(vfeat, interior_holes=kept)
+    return cleaned
+
+
 def infer_sketches(features: OrthoFeatures) -> SketchPartDescription:
-    views = features.views
+    views = _drop_unpaired_silhouette_holes(features.views)
     frame = _world_frame(views)
+
+    # Calibrate the per-axis ASPECT against the source STL's bbox, then
+    # rescale so the longest axis is NORMALISE_LONGEST_MM (100mm). The
+    # recon STL is in DeepCAD's normalized "unit cube" units (longest
+    # axis ≈ 1-2), so reading the STL bbox literally would give a 1mm
+    # part. We trust the STL for the X/Y/Z ratios (those carry the real
+    # geometry) but override the absolute scale to a sensible display
+    # size, mirroring the renderer's normalisation convention.
+    stl_bbox = _stl_bbox_for_calibration(features.source_png)
+    if stl_bbox is not None:
+        x_mm_true, y_mm_true, z_mm_true = stl_bbox
+        # Use the geometric mean of the STL bbox as the calibration anchor,
+        # matching the cleaned-PNG pass above. Picks the same "neutral"
+        # absolute size for any aspect ratio; the STL ratios still flow
+        # through unchanged.
+        true_gm = (x_mm_true * y_mm_true * z_mm_true) ** (1.0 / 3.0)
+        if true_gm <= 0:
+            true_gm = max(x_mm_true, y_mm_true, z_mm_true, 0.001)
+        px_gm = (frame.x_px * frame.y_px * frame.z_px) ** (1.0 / 3.0)
+        if px_gm <= 0:
+            px_gm = max(frame.x_px, frame.y_px, frame.z_px, 1.0)
+        # mm_per_px = (mm-per-unit) * (unit-per-px).
+        unit_to_mm = NORMALISE_GEOMETRIC_MEAN_MM / true_gm
+        frame = WorldFrame(
+            x_px=frame.x_px,
+            y_px=frame.y_px,
+            z_px=frame.z_px,
+            mm_per_px=(true_gm * unit_to_mm) / px_gm,
+        )
 
     # PASS 0: try slice-based stacked extrudes. Slicing computes per-axis
     # cross-sections from opposite-view depth panels and finds the real
@@ -1547,9 +2910,25 @@ def infer_sketches(features: OrthoFeatures) -> SketchPartDescription:
     sliced_axis = ""
     try:
         axis_slices = compute_axis_slices(features.source_png)
-        chosen = _pick_slicing_axis(axis_slices)
+        chosen = _pick_slicing_axis(axis_slices, views=views)
         if chosen is not None:
-            sliced_ops, sliced_note = _build_sliced_extrudes(chosen, frame)
+            # Pass the BASE view (matched to the chosen axis) so the
+            # base tier can use its per-view outline directly.
+            base_view_for_axis = views.get({"Z": "Top", "Y": "Front", "X": "Right"}.get(chosen.axis, "Top"))
+            # Pre-compute the per-view through-hole diameters along the
+            # chosen axis so we can dedup slice cross-section holes that
+            # duplicate them.
+            view_pair = {"Z": ("Top", "Bottom"), "Y": ("Front", "Back"), "X": ("Right", "Left")}.get(chosen.axis)
+            through_hole_diams: list[float] = []
+            if view_pair:
+                va, vb = view_pair
+                if views.get(va) and views.get(vb):
+                    matched = _match_holes(views[va], views[vb], chosen.axis, frame)
+                    through_hole_diams = [h.diameter_mm for h in matched]
+            sliced_ops, sliced_note = _build_sliced_extrudes(
+                chosen, frame, base_view=base_view_for_axis,
+                through_hole_diameters_mm=through_hole_diams,
+            )
             sliced_axis = chosen.axis
     except Exception as exc:
         sliced_note = f"slicing skipped: {exc}"
@@ -1567,11 +2946,26 @@ def infer_sketches(features: OrthoFeatures) -> SketchPartDescription:
     construction_note: str
 
     # If slicing succeeded, use that construction (it's the cleanest
-    # signal). Otherwise fall back to depth-tier stacked extrudes, then
-    # to the single-base-extrude path.
+    # signal) — UNLESS the base view's per-pixel depth-tier detector
+    # found strictly more tiers than slicing did. That case usually
+    # means the part has stacked tiers whose Z transitions are too
+    # smooth (rounded fillets / cleanup-softened edges) for the area-
+    # gradient slicer to localize. Per-view tier_regions reads each
+    # tier from a luma cluster directly, so it doesn't suffer from
+    # the smearing problem.
     tier_ops: list[SketchOperation] = []
     construction_note = ""
-    if sliced_ops:
+    # Per-arc scale factors applied by the STL-anchored radius override.
+    # Populated in the _base_profile branch below when the base is
+    # arc_line; consumed later by the through-hole loop to rescale hole
+    # diameters that match a ball whose arc got resized.
+    arc_scale_log: list = []
+    sliced_n_zones = sum(1 for op in (sliced_ops or []) if op.operation == "extrude")
+    perview_n_tiers = len(top.tier_regions)
+    use_sliced = bool(sliced_ops) and (
+        sliced_axis != "Z" or sliced_n_zones >= perview_n_tiers
+    )
+    if use_sliced:
         tier_ops = sliced_ops
         construction_note = sliced_note
         # Map the chosen axis back to the base plane so subsequent code
@@ -1583,8 +2977,24 @@ def infer_sketches(features: OrthoFeatures) -> SketchPartDescription:
             base_extrude_axis_mm = max(
                 getattr(frame, sl_spec["axis_attr"]), 0.001,
             )
-    elif len(top.tier_regions) >= 2:
-        tier_ops, construction_note = _build_stacked_extrudes(top, frame)
+    elif perview_n_tiers >= 2:
+        # Pass side views (Front/Right preferred, then Back/Left) so
+        # the stacked builder can anchor BIG-flange thickness against
+        # the side silhouette's actual Z extent, not luma proportions.
+        side_views_for_stack = [
+            v for v in (
+                views.get("Front"), views.get("Right"),
+                views.get("Back"),  views.get("Left"),
+            ) if v is not None
+        ]
+        tier_ops, construction_note = _build_stacked_extrudes(
+            top, frame, side_views=side_views_for_stack,
+            source_png=features.source_png,
+        )
+        construction_note = (
+            f"per-view tier_regions ({perview_n_tiers} tiers) chosen over "
+            f"slicing ({sliced_n_zones} zones); "
+        ) + construction_note
     if tier_ops:
         operations.extend(tier_ops)
         base = BaseProfile(
@@ -1598,6 +3008,22 @@ def infer_sketches(features: OrthoFeatures) -> SketchPartDescription:
     else:
         base = _base_profile(top, frame)
         extrude_distance_mm = base_extrude_axis_mm
+        # If the base is arc_line, sample the noisy STL at each arc's
+        # centre and rebuild arcs at the LOCAL part extent. Restores
+        # size asymmetries (e.g. dumbbell ends of different diameters)
+        # that the cleanup PNG smoothed into near-identical arcs.
+        if base.profile.shape == "arc_line":
+            anchored = _override_arc_radii_from_stl(
+                base.profile, features.source_png, base_plane, frame,
+                scale_log=arc_scale_log,
+            )
+            if anchored is not base.profile:
+                base = BaseProfile(
+                    profile=anchored,
+                    flat_cuts=base.flat_cuts,
+                    flat_cut_positions_mm=base.flat_cut_positions_mm,
+                    notes=base.notes + " [STL-anchored arc radii]",
+                )
 
         order = 1
         # 1) Base extrude on the chosen plane.
@@ -1647,6 +3073,24 @@ def infer_sketches(features: OrthoFeatures) -> SketchPartDescription:
         hole_count_by_axis[axis] = len(matched)
         for hole in matched:
             d_mm = max(hole.diameter_mm, 0.001)
+            # If a STL-anchored arc override resized a ball at this
+            # hole's position, scale the hole diameter by the same
+            # factor. Without this the dumbbell's two ends end up
+            # different sizes (good) but with identical holes (bad).
+            if arc_scale_log:
+                hx, hy = hole.centre_mm
+                best_scale = None
+                best_d = float("inf")
+                for entry in arc_scale_log:
+                    cx, cy = entry["centre"]
+                    d = ((hx - cx) ** 2 + (hy - cy) ** 2) ** 0.5
+                    if d < best_d:
+                        best_d = d
+                        best_scale = entry["scale"]
+                # Only apply if the hole sits inside a resized ball
+                # (within ~1.5x the typical arc radius from its centre).
+                if best_scale is not None and best_d < d_mm * 1.5:
+                    d_mm = max(d_mm * best_scale, 0.001)
             operations.append(SketchOperation(
                 order=order,
                 plane=face_sel,
@@ -1688,7 +3132,10 @@ def infer_sketches(features: OrthoFeatures) -> SketchPartDescription:
         f"mm/px = {frame.mm_per_px:.3f}. "
         f"D-cuts: {len(base.flat_cuts)}. "
         f"Through-holes Z/Y/X: {z_holes_count}/{y_holes_count}/{x_holes_count}. "
-        f"Side-face: {', '.join(side_notes) if side_notes else 'none'}."
+        f"Side-face: {', '.join(side_notes) if side_notes else 'none'}. "
+        f"Dimensions auto-calibrated from noisy mesh "
+        f"(geometric-mean = {NORMALISE_GEOMETRIC_MEAN_MM:.0f}mm); "
+        f"override per-tier mm values to use exact specs."
     )
 
     # Confidence heuristic: high if base classified as a primitive AND we

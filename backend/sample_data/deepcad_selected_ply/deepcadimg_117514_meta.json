@@ -1,5 +1,5 @@
 {
-  "ply_path": "/Users/nataliechan/Projects/CADabra/backend/sample_data/deepcad_selected_ply/deepcadimg_117514.ply",
+  "ply_path": "backend/sample_data/deepcad_selected_ply/deepcadimg_117514.ply",
   "n_points": 4048,
   "raw_extents_mm": [
     0.4453125,
@@ -11,8 +11,8 @@
   "scan_profile": {
     "n_views": 8,
     "image_resolution": 180,
-    "sigma_z": 0.003,
-    "sigma_xy": 0.0008,
+    "sigma_z": 0.0015,
+    "sigma_xy": 0.0004,
     "grazing_cos_cutoff": 0.25881904510252074,
     "grazing_clip_floor": 0.4,
     "edge_depth_threshold": 0.025,
@@ -22,7 +22,7 @@
     "sor_std_ratio": 1.5
   },
   "raw_scanned_points": 118883,
-  "after_sor_points": 108017,
-  "source_stl": "/Users/nataliechan/Projects/CADabra/backend/outputs/deepcad_selected_stl/deepcadimg_117514.stl",
+  "after_sor_points": 106489,
+  "source_stl": "backend/outputs/deepcad_selected_stl/deepcadimg_117514.stl",
   "sample_id": "deepcadimg_117514"
 }

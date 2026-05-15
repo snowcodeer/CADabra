@@ -242,15 +242,55 @@ the same overall aspect ratio. You may NOT:
   - change which cell of the grid is occupied by which view
   - introduce new global geometry that wasn't suggested by the input
 
-PRESERVE REGULAR POLYGON CORNERS.
-If a silhouette in any view shows N STRAIGHT segments meeting at SHARP
-corners (a hexagon, octagon, etc.), the output must still have N
-distinct straight segments and N sharp corners — DO NOT round them
-into a circle or near-circle. The downstream CV recogniser detects
-N-fold symmetry by counting these corners, so smoothing them into a
-curve loses the engineering intent. This applies even when the noise
-makes corners look slightly fuzzy in the input — straighten the
-segments and SHARPEN the corners rather than rounding them.
+SILHOUETTE HALF (RIGHT) IS THE GROUND TRUTH FOR HOLES — CRITICAL.
+The right half of each cell is the silhouette mask. It already shows,
+at input time, every real through-hole as a white island inside the
+dark fill. Your output silhouette must match the input silhouette's
+HOLE TOPOLOGY exactly:
+- If the input silhouette is SOLID (no white island inside the dark
+  fill), the output silhouette must also be SOLID. NEVER add a hole
+  that is not already a visible white island in the input silhouette.
+- If the input silhouette HAS a white island, keep it as a white
+  island of the same size, shape and position (you may straighten the
+  edge and remove jagged pixels, you may NOT shrink, fill, or move it).
+- Concentric rings, dots or tiers visible in the LEFT (depth) half are
+  NEVER, by themselves, a reason to add a hole to the silhouette.
+  Those are blind recesses / counterbores / depth tiers — captured by
+  depth shading in the left half — and the silhouette must stay solid.
+The downstream CV pipeline matches white silhouette-half islands
+between opposite views to identify true through-holes. Inventing one
+in the silhouette half breaks the rebuild; missing one drops a real
+through-hole. Match the input silhouette's hole topology EXACTLY.
+
+PRESERVE OUTLINE CHARACTER — STRAIGHT STAYS STRAIGHT, CURVED STAYS CURVED.
+The single most damaging mistake is converting one shape family into
+another. Look at the GLOBAL character of each silhouette outline before
+deciding how to denoise it:
+
+  - If the outline shows a CONTINUOUS SMOOTH CURVE (a circle, oval,
+    ellipse, fillet arc, kidney bean, rounded rectangle), output a
+    clean smooth curve. A noisy or slightly-faceted boundary on a
+    rounded part is STILL a curve — smooth the boundary, do NOT chop
+    it into straight chords or snap it to a hexagon / octagon. A
+    fuzzy circle is a CIRCLE, not a 6/8/10-gon.
+
+  - If the outline shows OBVIOUS STRAIGHT SEGMENTS meeting at SHARP,
+    well-defined CORNERS (clear chord-like edges joined at distinct
+    vertices, e.g. hex nut, octagonal post, rectangular plate), output
+    a clean polygonal outline with the same number of segments and
+    sharp corners — do NOT round those corners into curves.
+
+  - If you cannot tell with high confidence which family the outline
+    belongs to, DEFAULT TO PRESERVING THE INPUT CHARACTER. Do not
+    invent polygonization that the input does not clearly show, and
+    do not invent curvature that the input does not clearly show.
+
+Polygonizing a circle and rounding a polygon are equally destructive —
+both wipe out engineering intent. The downstream CV pipeline can
+classify circles, regular n-gons, and arbitrary polygons CORRECTLY
+when their character is preserved; it cannot recover a circle that
+was cleaned into an octagon, or a hex nut that was cleaned into a
+circle.
 
 CLEAN UP NOISE BOTH INSIDE AND ON THE BOUNDARY.
 Within the constraint above, you SHOULD aggressively smooth out scan noise
@@ -314,11 +354,24 @@ When you redraw each cell:
     edges crisp (straight where straight, smooth curves where curved).
 
 KEEP the same 3x2 LAYOUT and the same 6 views in the same positions. KEEP the
-depth-then-silhouette internal split of each cell. Use grayscale only. Do NOT
-add labels, captions, dimensions, borders, arrows, perspective, shading or
-artistic flourishes. No extra geometry, no decoration. The result should look
-like a clean engineering orthographic set with the same overall layout and
-proportions as the input."""
+depth-then-silhouette internal split of each cell.
+
+PRESERVE THE INPUT COLOR PALETTE EXACTLY in the depth half. The left half is
+a colored depth map (RdYlBu_r colormap: red = nearest to camera, yellow =
+middle, blue = farthest, with the same hue assigned to the same height
+across all six views). KEEP every tier in its INPUT HUE — a red region
+must stay red, an orange region must stay orange, a light-blue region
+must stay light-blue. DO NOT convert to grayscale, do not posterize the
+hues into shades of one color, do not invert the red/blue mapping.
+Distinct hues are how the downstream CV pipeline tells tiers apart, and
+collapsing them is far more destructive than any boundary noise you
+might be denoising. The right half (silhouette) stays black-on-white as
+in the input.
+
+Do NOT add labels, captions, dimensions, borders, arrows, perspective,
+shading or artistic flourishes. No extra geometry, no decoration. The
+result should look like a clean engineering orthographic set with the
+same overall layout, hues and proportions as the input."""
 
 
 def _png_b64_to_bytes(b64: str) -> bytes:

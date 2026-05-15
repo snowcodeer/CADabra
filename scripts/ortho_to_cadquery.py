@@ -81,7 +81,20 @@ class RunPaths:
         )
 
 
-def _resolve_clean_png(sample_id: str) -> Path:
+def _resolve_clean_png(sample_id: str, *, skip_cleanup: bool = False) -> Path:
+    if skip_cleanup:
+        # Read the 1536x1024 segmenter-compatible canvas BEFORE gpt-image-2 ran.
+        # Same layout/format as the cleaned output; just unedited. Use this when
+        # the cleanup step is doing more harm than good (e.g. over-smoothing
+        # octagons into circles at low scan-noise levels).
+        p = RECON_OUT_DIR / "clean_view_inputs" / f"{sample_id}_clean_input.png"
+        if not p.exists():
+            raise SystemExit(
+                f"pre-cleanup canvas missing: {p}. Run "
+                "scripts/synthesize_clean_views.py (it writes the input even "
+                "before calling gpt-image-2)."
+            )
+        return p
     if not RECON_MANIFEST.exists():
         raise SystemExit(f"manifest missing: {RECON_MANIFEST.relative_to(REPO_ROOT)}")
     manifest = json.loads(RECON_MANIFEST.read_text())
@@ -121,6 +134,12 @@ def parse_args() -> argparse.Namespace:
         "--open", action="store_true",
         help="open the overlay + recon grid in Preview (macOS only).",
     )
+    p.add_argument(
+        "--no-cleanup", action="store_true",
+        help="skip the gpt-image-2 cleanup step; CV reads the pre-cleanup "
+             "1536x1024 canvas directly. Useful when cleanup over-smooths "
+             "(e.g. octagons -> circles) at low scan-noise levels.",
+    )
     return p.parse_args()
 
 
@@ -128,7 +147,7 @@ def main() -> int:
     args = parse_args()
 
     if args.sample_id:
-        clean_png = _resolve_clean_png(args.sample_id)
+        clean_png = _resolve_clean_png(args.sample_id, skip_cleanup=args.no_cleanup)
         part_id = args.part_id or args.sample_id
     else:
         clean_png = Path(args.png).resolve()
@@ -203,7 +222,11 @@ def main() -> int:
         code
         + "\n"
         + f"result.val().exportStep({str(paths.step)!r})\n"
-        + f"cq.exporters.export(result, {str(paths.stl)!r})\n"
+        # Tight tolerances so circular features tessellate smoothly
+        # instead of showing the default ~10-segment polygon facets.
+        # tolerance = chord-height (mm), angularTolerance = chord-arc (rad).
+        + f"cq.exporters.export(result, {str(paths.stl)!r}, "
+          "tolerance=0.02, angularTolerance=0.05)\n"
     )
     if paths.stl.exists():
         paths.stl.unlink()

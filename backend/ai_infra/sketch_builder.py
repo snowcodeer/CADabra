@@ -208,11 +208,76 @@ def _subsequent_op_lines(op: SketchOperation) -> list[str]:
     distance = op.distance_mm
 
     if op.plane in FACE_SELECTORS:
-        tag = SEED_FACE_TAGS[op.plane]
-        wp = (
-            f'result.faces(tag="{tag}")'
-            f'.workplane(centerOption="CenterOfBoundBox")'
-        )
+        # ROUTING for face-selector planes (">Z" / "<Z" / "±X" / "±Y"):
+        #
+        #   - >Z / <Z (top / bottom):
+        #       Centered stacked extrudes must use the LIVE selector
+        #       (`result.faces(">Z")`) so each new tier sits on the
+        #       current top. An OFFSET top extrude belongs on the
+        #       ORIGINAL seed face. CUTS always use the SEED tag so
+        #       (a) the workplane is anchored to the world frame
+        #       regardless of how the live face has shifted after
+        #       stacking, and (b) cutThruAll punches through the whole
+        #       stack from the seed plane.
+        #
+        #   - ±X / ±Y (side faces):
+        #       After vertical stacking, the live ">Y" selector matches
+        #       multiple non-coplanar faces, so the live workplane is
+        #       ambiguous. Use the seed tag for both EXTRUDE and CUT —
+        #       the seed face is unique and pre-tagged, and cutThruAll
+        #       handles "drill through both halves of the part" without
+        #       caring whether the workplane sits inside or outside the
+        #       solid.
+        if op.plane in {">Z", "<Z"}:
+            # A circular blind recess (counterbore) must anchor to the
+            # CURRENTLY LIVE top face, not the seed face: it sits ON TOP
+            # of the boss / latest stacked tier, recessing partway DOWN
+            # into it. Routing through the seed tag drills the recess
+            # from the flange top instead, so the counterbore floats in
+            # the middle of the part where nobody can see it.
+            #
+            # Through-holes / through-cuts (cutThruAll) keep using the
+            # seed tag — they're two-sided so the workplane anchor only
+            # needs to be SOMEWHERE in the part; the seed face is the
+            # stable reference that doesn't move when tiers stack on top.
+            cut_diam = (
+                op.profile.diameter_mm
+                if op.profile.diameter_mm is not None
+                else min(op.profile.width_mm, op.profile.depth_mm)
+            ) if op.profile.shape == "circle" else 0.0
+            is_blind_recess = (
+                op.operation == "cut"
+                and op.profile.shape == "circle"
+                and op.direction == "negative"
+                and 0 < op.distance_mm < cut_diam
+            )
+            use_seed_face = (
+                (op.operation == "cut" and not is_blind_recess)
+                or (
+                    op.operation == "extrude"
+                    and (abs(op.position_x) > 1e-9 or abs(op.position_y) > 1e-9)
+                )
+            )
+            if use_seed_face:
+                tag = SEED_FACE_TAGS[op.plane]
+                wp = (
+                    f'result.faces(tag="{tag}")'
+                    f'.workplane(centerOption="CenterOfBoundBox")'
+                )
+            else:
+                wp = (
+                    f'result.faces("{op.plane}")'
+                    f'.workplane(centerOption="CenterOfBoundBox")'
+                )
+        else:
+            # Side-face CUT or EXTRUDE — use the seed tag as a stable
+            # anchor so we attach to the original base side, not whatever
+            # live selector resolves to.
+            tag = SEED_FACE_TAGS[op.plane]
+            wp = (
+                f'result.faces(tag="{tag}")'
+                f'.workplane(centerOption="CenterOfBoundBox")'
+            )
     elif op.plane in ABSOLUTE_PLANES:
         # Treat as a fresh workplane in world space — useful for adding
         # disjoint geometry that gets unioned in by being part of result.
@@ -229,20 +294,42 @@ def _subsequent_op_lines(op: SketchOperation) -> list[str]:
 
     if op.operation == "cut":
         if op.profile.shape == "circle":
-            # Through-hole vs blind: a "negative" direction with a
-            # finite distance is a blind cut; "positive" with a very
-            # large distance acts as through. We default to the simpler
-            # `.hole()` call when the cut depth equals or exceeds the
-            # part's bounding-box diagonal — that case is "through".
             diameter = (
                 op.profile.diameter_mm
                 if op.profile.diameter_mm is not None
                 else min(op.profile.width_mm, op.profile.depth_mm)
             )
+            # SHALLOW recess vs THROUGH-HOLE classification:
+            # Through-hole cuts are emitted by `_match_holes` with
+            # distance_mm = axis_extent + 1 (i.e. slightly longer than
+            # the part along that axis). Recess cuts (from
+            # `_build_stacked_extrudes` thin-ring detection) get a
+            # MUCH smaller distance — the rim wall thickness, typically
+            # <10% of the part's Z extent.
+            #
+            # Use cutThruAll for through-holes — that's two-sided and
+            # independent of where the workplane sits inside the part,
+            # so a Y-axis hole through a thin slab works even though
+            # the absolute XZ workplane is on one face. For shallow
+            # recesses, keep `.hole(d, depth=X)` which carves a blind
+            # cylinder of the requested depth from the workplane.
+            #
+            # Through-vs-blind heuristic: through-cuts are as deep as
+            # the diameter OR deeper (a hole drilled 50mm deep in a
+            # 38mm-wide part is asking to pierce the back face).
+            # Recesses are FAR shallower (depth/diameter typically
+            # 0.05-0.15), so this threshold cleanly separates them
+            # without needing a part-extent reference.
+            is_through = (
+                op.direction == "positive"
+                or distance >= diameter
+            )
+            if is_through:
+                return [
+                    f"result = {wp}.circle({_fmt(diameter / 2)}).cutThruAll()"
+                ]
             return [
                 f"result = {wp}.hole({_fmt(diameter)}, depth={_fmt(distance)})"
-                if op.direction == "negative"
-                else f"result = {wp}.hole({_fmt(diameter)})"
             ]
         # Rectangular / polygon cut.
         signed = -distance if op.direction == "positive" else distance
@@ -274,7 +361,13 @@ def build_from_sketches(part: SketchPartDescription) -> str:
     if not ops:
         raise ValueError("SketchPartDescription has no operations")
 
-    lines: list[str] = ["import cadquery as cq", ""]
+    lines: list[str] = [
+        "import cadquery as cq",
+        "",
+        "# Dimensions auto-calibrated from noisy mesh; override per-tier "
+        "mm values to use exact specs.",
+        "",
+    ]
     lines.extend(_first_op_lines(ops[0]))
     # Tag the seed solid's six cardinal faces BEFORE any subsequent
     # operation runs, so face lookups by tag stay anchored to the

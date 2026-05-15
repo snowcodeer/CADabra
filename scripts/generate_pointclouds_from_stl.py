@@ -12,15 +12,15 @@ warnings.filterwarnings('ignore', message='All-NaN slice encountered')
 REPO_ROOT = Path(__file__).resolve().parents[1]
 POINT_COUNT = 4048
 
-# Noise calibrated to roughly match a structured-light depth scanner (e.g. RealSense / Kinect-class)
-# on a 2-unit-diameter object: ~0.3% lateral, ~0.7% axial, sharp grazing-angle dropoff,
-# no free-floating outliers (real scanners produce flying pixels only at depth discontinuities,
-# and we already cull those via the edge mask).
+# Noise calibrated between a structured-light depth scanner (RealSense/Kinect-class)
+# and a higher-end metrology scanner: ~0.15% lateral, ~0.075% axial on a 2-unit-diameter
+# object, sharp grazing-angle dropoff, no free-floating outliers (real scanners produce
+# flying pixels only at depth discontinuities, and we already cull those via the edge mask).
 SCAN_PROFILE = {
     'n_views': 8,
     'image_resolution': 180,
-    'sigma_z': 0.0030,
-    'sigma_xy': 0.0008,
+    'sigma_z': 0.0015,
+    'sigma_xy': 0.0004,
     'grazing_cos_cutoff': float(np.cos(np.deg2rad(75.0))),
     'grazing_clip_floor': 0.40,
     'edge_depth_threshold': 0.025,

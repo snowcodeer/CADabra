@@ -1137,7 +1137,12 @@ SLICE_AREA_MIN_FRAC = 0.005      # cross-section area must be >= 0.5% of panel
 # with max(area) only fires on real cross-section changes (e.g. the
 # 13000→7000 drop between two stepped octagonal tiers is 46% of max area
 # = a clear transition; a 13238→13200 jitter on a flat tier is 0.3%).
-SLICE_TRANSITION_FRAC_OF_MAX_AREA = 0.08
+# Threshold stays at 0.04 of max area, but combined with the wider
+# 4-slice lag (below) it now picks up smooth/tapered transitions a
+# pure 1-slice diff would miss. The 4-slice window accumulates the
+# area change across the gradient so the threshold compares the
+# total step, not the per-bin slope.
+SLICE_TRANSITION_FRAC_OF_MAX_AREA = 0.04
 # After detection, merge transitions that sit within this many slices of
 # each other into ONE (their centre). A multi-slice "ramp" between two
 # tiers shows up as several consecutive transitions; without merging we'd
@@ -1182,7 +1187,22 @@ SLICE_HOLE_MIN_AREA_VS_OUTER = 0.005  # hole must be >= 0.5% of its outer contou
 # Drop zones whose cross-section area is within this fraction of the
 # previous zone's area — they're really the same plateau split by a
 # spurious transition that survived the merge.
-SLICE_ZONE_DEDUP_AREA_FRAC = 0.12
+# Lowered 0.12 → 0.05: was merging adjacent stepped tiers whose area
+# differed by 5-12% (e.g. 000035's boss has 4 stepped tiers each ~10%
+# smaller than the previous, all of which were collapsing into one).
+SLICE_ZONE_DEDUP_AREA_FRAC = 0.05
+
+# "Transition zone" filter: a zone is treated as a smooth-gradient artifact
+# (not a real tier) when its height fraction is below this threshold AND
+# its area sits between its neighbours' areas. 002354's L-shape produced a
+# spurious thin (~7%-of-axis) middle zone whose cross-section was halfway
+# between the wide base and the tall protrusion — this is the cleanup
+# render's gradient ramp at a sharp step, not a physical tier. We merge
+# such zones into the area-closer neighbour.
+SLICE_TRANSITION_MAX_HEIGHT_FRAC = 0.12
+# How much "between" the neighbour areas the candidate's area must be: it
+# qualifies as transitional when min(prev, next) < area < max(prev, next).
+# (No extra tolerance — strict monotonic-between only.)
 
 
 def _luma_to_depth_norm(luma: np.ndarray) -> np.ndarray:
@@ -1498,16 +1518,15 @@ def _slice_axis(
             cross_section=cs,
         ))
 
-    # Post-merge: if two adjacent zones have nearly the same cross-section
-    # area (within SLICE_ZONE_DEDUP_AREA_FRAC), they're actually the same
-    # plateau. Combine them by extending the previous zone's end_norm.
+    # Post-merge: dedup on OUTER contour area. Tiers with the same
+    # outer diameter but different interior holes are treated as one
+    # tier — the inner holes are emitted separately as cut operations.
     deduped: list[AxisZone] = []
     for z in zones:
         if deduped:
             prev = deduped[-1]
             prev_a = max(prev.cross_section.area_px, 1.0)
             if abs(z.cross_section.area_px - prev_a) / prev_a < SLICE_ZONE_DEDUP_AREA_FRAC:
-                # Extend the previous zone to cover this one, keep prev's cross-section
                 deduped[-1] = AxisZone(
                     axis=prev.axis,
                     start_norm=prev.start_norm,
@@ -1516,6 +1535,46 @@ def _slice_axis(
                 )
                 continue
         deduped.append(z)
+
+    # Transition-zone filter: a THIN zone whose area sits between the
+    # neighbours' is a render-gradient artifact at a sharp Z step. Merge
+    # it into the area-closer neighbour by extending that neighbour's Z
+    # range. We never drop the FIRST or LAST zone this way, and we only
+    # touch one zone per pass so the iteration keeps the list well-formed.
+    changed = True
+    while changed and len(deduped) >= 3:
+        changed = False
+        for i in range(1, len(deduped) - 1):
+            cur = deduped[i]
+            h = cur.end_norm - cur.start_norm
+            if h >= SLICE_TRANSITION_MAX_HEIGHT_FRAC:
+                continue
+            prev = deduped[i - 1]
+            nxt = deduped[i + 1]
+            prev_a = prev.cross_section.area_px
+            cur_a = cur.cross_section.area_px
+            nxt_a = nxt.cross_section.area_px
+            lo, hi = min(prev_a, nxt_a), max(prev_a, nxt_a)
+            if not (lo < cur_a < hi):
+                continue
+            # Merge into the area-closer neighbour, extending its Z range.
+            if abs(cur_a - prev_a) <= abs(cur_a - nxt_a):
+                deduped[i - 1] = AxisZone(
+                    axis=prev.axis,
+                    start_norm=prev.start_norm,
+                    end_norm=cur.end_norm,
+                    cross_section=prev.cross_section,
+                )
+            else:
+                deduped[i + 1] = AxisZone(
+                    axis=nxt.axis,
+                    start_norm=cur.start_norm,
+                    end_norm=nxt.end_norm,
+                    cross_section=nxt.cross_section,
+                )
+            del deduped[i]
+            changed = True
+            break
 
     return AxisSlices(
         axis=axis, n_slices=n_slices,
