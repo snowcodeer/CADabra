@@ -37,7 +37,6 @@ import {
   Sample128105EditorScene,
   type Sample128105Params,
 } from "@/components/cad/Sample128105EditorScene";
-import { API_BASE, resolveOutputUrl } from "@/lib/api";
 import { demoAssets, type StepOffAudit } from "@/lib/demoAssets";
 
 type AllSampleParams = {
@@ -130,14 +129,8 @@ const Demo = () => {
     [selectedSampleId],
   );
   const isParametricCenter = selectedSampleId === "deepcadimg_000035";
-  const stepUrl = useMemo(
-    () => `${API_BASE}/outputs/ortho_${selectedSampleId}.step`,
-    [selectedSampleId],
-  );
-  const generatedStlUrl = useMemo(
-    () => resolveOutputUrl(`/outputs/ortho_${selectedSampleId}.stl`),
-    [selectedSampleId],
-  );
+  const stepUrl = selectedSample.assets.generatedStep;
+  const generatedStlUrl = selectedSample.assets.generatedStl;
 
   const delta = useMemo(
     () => ({

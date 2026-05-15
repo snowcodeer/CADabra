@@ -13,6 +13,16 @@ import orthoGrid002354Url from "../../public/demos/ortho_deepcadimg_002354_recon
 import orthoGrid117514Url from "../../public/demos/ortho_deepcadimg_117514_recon_grid.png?url";
 import orthoGrid128105Url from "../../public/demos/ortho_deepcadimg_128105_recon_grid.png?url";
 
+import generatedStl000035Url from "../../public/demos/ortho_deepcadimg_000035.stl?url";
+import generatedStl002354Url from "../../public/demos/ortho_deepcadimg_002354.stl?url";
+import generatedStl117514Url from "../../public/demos/ortho_deepcadimg_117514.stl?url";
+import generatedStl128105Url from "../../public/demos/ortho_deepcadimg_128105.stl?url";
+
+import generatedStep000035Url from "../../public/demos/ortho_deepcadimg_000035.step?url";
+import generatedStep002354Url from "../../public/demos/ortho_deepcadimg_002354.step?url";
+import generatedStep117514Url from "../../public/demos/ortho_deepcadimg_117514.step?url";
+import generatedStep128105Url from "../../public/demos/ortho_deepcadimg_128105.step?url";
+
 import stepOffs000035 from "../../public/demos/ortho_deepcadimg_000035_step_offs.json";
 import stepOffs002354 from "../../public/demos/ortho_deepcadimg_002354_step_offs.json";
 import stepOffs117514 from "../../public/demos/ortho_deepcadimg_117514_step_offs.json";
@@ -49,24 +59,32 @@ export const demoAssets = {
     cloudStl: cloud000035Url,
     groundTruthStl: groundTruth000035Url,
     orthoGrid: orthoGrid000035Url,
+    generatedStl: generatedStl000035Url,
+    generatedStep: generatedStep000035Url,
     stepOffs: stepOffs000035 as StepOffAudit,
   },
   deepcadimg_002354: {
     cloudStl: cloud002354Url,
     groundTruthStl: groundTruth002354Url,
     orthoGrid: orthoGrid002354Url,
+    generatedStl: generatedStl002354Url,
+    generatedStep: generatedStep002354Url,
     stepOffs: stepOffs002354 as StepOffAudit,
   },
   deepcadimg_117514: {
     cloudStl: cloud117514Url,
     groundTruthStl: groundTruth117514Url,
     orthoGrid: orthoGrid117514Url,
+    generatedStl: generatedStl117514Url,
+    generatedStep: generatedStep117514Url,
     stepOffs: stepOffs117514 as StepOffAudit,
   },
   deepcadimg_128105: {
     cloudStl: cloud128105Url,
     groundTruthStl: groundTruth128105Url,
     orthoGrid: orthoGrid128105Url,
+    generatedStl: generatedStl128105Url,
+    generatedStep: generatedStep128105Url,
     stepOffs: stepOffs128105 as StepOffAudit,
   },
 } as const;
