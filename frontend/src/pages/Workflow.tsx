@@ -2276,8 +2276,12 @@ const Workflow = () => {
 
   useEffect(() => {
     if (stage !== 5) return;
-    navigate("/demo");
-  }, [navigate, stage]);
+    if (pipelineSampleId) {
+      navigate(`/demo?sample=${encodeURIComponent(pipelineSampleId)}`);
+    } else {
+      navigate("/demo");
+    }
+  }, [navigate, stage, pipelineSampleId]);
 
   // Compute overall pipeline progress (0–100) across all stages.
   const overallProgress =

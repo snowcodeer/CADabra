@@ -101,6 +101,13 @@ const DEMO_SAMPLES = [
 
 type DemoSampleId = (typeof DEMO_SAMPLES)[number]["id"];
 
+function readInitialSampleIdFromUrl(): DemoSampleId {
+  if (typeof window === "undefined") return "deepcadimg_000035";
+  const param = new URLSearchParams(window.location.search).get("sample");
+  if (param && DEMO_SAMPLES.some((s) => s.id === param)) return param as DemoSampleId;
+  return "deepcadimg_000035";
+}
+
 const Demo = () => {
   const DISPLAY_COVERAGE_PERCENT = 84;
   const [compareMode, setCompareMode] = useState(false);
@@ -108,7 +115,7 @@ const Demo = () => {
   const [editorOpen, setEditorOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
-  const [selectedSampleId, setSelectedSampleId] = useState<DemoSampleId>("deepcadimg_000035");
+  const [selectedSampleId, setSelectedSampleId] = useState<DemoSampleId>(readInitialSampleIdFromUrl);
   const [paramsBySample, setParamsBySample] = useState<AllSampleParams>(INITIAL_PARAMS_BY_SAMPLE);
 
   const setSampleParams = useCallback(
