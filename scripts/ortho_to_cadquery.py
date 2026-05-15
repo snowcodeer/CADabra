@@ -25,11 +25,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -58,6 +61,11 @@ OUTPUT_DIR = REPO_ROOT / "backend" / "outputs"
 RECON_OUT_DIR = REPO_ROOT / "backend" / "outputs" / "deepcad_pc_recon_stl"
 RECON_MANIFEST = RECON_OUT_DIR / "manifest.json"
 EXEC_TIMEOUT_SECONDS = 15
+# Below this average silhouette IoU we treat the deterministic CV rebuild
+# as untrustworthy and fall back to the Claude vision path. 0.85 picks up
+# clear shape mismatches (off-centre boss carved-out features, ~10mm
+# bbox misalignment) while leaving small triangulation jitter alone.
+CONFIDENCE_THRESHOLD = 0.85
 
 
 @dataclass(frozen=True)
@@ -90,6 +98,139 @@ class RunPaths:
             self.features_json, self.overlay_png, self.code_py,
             self.stl, self.step, self.recon_grid, self.sketch_json,
         )
+
+
+def _resolve_input_noisy_stl(sample_id: str) -> Path | None:
+    """Locate the noisy reconstruction STL that feeds this sample.
+
+    Returned for two purposes downstream: (a) computing silhouette IoU
+    against the rebuild and (b) extracting world-mm bounds for the
+    vision-fallback contour-coordinate scale.
+    """
+    candidates = [
+        RECON_OUT_DIR / f"{sample_id}_recon_noisy.stl",
+        REPO_ROOT / "frontend" / "deepcad_pcrecon_stl" / f"{sample_id}_recon_noisy.stl",
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+def _silhouette_mask_from_view(mesh: "pv.PolyData", view: str,  # type: ignore[name-defined] # noqa: F821
+                                common_center: tuple[float, float, float],
+                                common_span: float,
+                                resolution: int = 400) -> np.ndarray:
+    """Render ``mesh`` from one orthographic axis with a SHARED camera
+    framing (so two meshes can be compared pixel-for-pixel) and return
+    the binary silhouette mask."""
+    import pyvista as pv
+    pl = pv.Plotter(off_screen=True, window_size=[resolution, resolution])
+    pl.set_background("white")
+    pl.add_mesh(mesh, color="black", lighting=False, ambient=1.0)
+    pl.enable_parallel_projection()
+    cx, cy, cz = common_center
+    d = common_span * 2.5
+    if view == "Z":
+        cam_pos = (cx, cy, cz + d); view_up = (0, 1, 0)
+    elif view == "Y":
+        cam_pos = (cx, cy + d, cz); view_up = (0, 0, 1)
+    else:  # "X"
+        cam_pos = (cx + d, cy, cz); view_up = (0, 0, 1)
+    pl.camera_position = [cam_pos, (cx, cy, cz), view_up]
+    pl.camera.parallel_scale = common_span / 2.0
+    img = np.asarray(pl.screenshot(return_img=True))
+    pl.close()
+    return img[:, :, 0] < 100
+
+
+def _normalize_mesh_to_unit_cube(mesh: "pv.PolyData") -> "pv.PolyData":  # type: ignore[name-defined] # noqa: F821
+    """Translate the mesh's bbox centre to origin and scale so the
+    longest edge fits in a unit cube. Used to bring the input noisy
+    STL (~unit cube as rendered) and the rebuild STL (real mm) into
+    a common frame before silhouette IoU.
+    """
+    b = mesh.bounds
+    cx, cy, cz = (b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2
+    span = max(b[1] - b[0], b[3] - b[2], b[5] - b[4]) or 1.0
+    out = mesh.copy()
+    out.translate((-cx, -cy, -cz), inplace=True)
+    out.scale((1.0 / span, 1.0 / span, 1.0 / span), inplace=True)
+    return out
+
+
+def _silhouette_iou(stl_a: Path, stl_b: Path, resolution: int = 400) -> tuple[float, dict[str, float]]:
+    """Average silhouette IoU across +Z, +X, +Y orthographic views.
+
+    Both meshes are first normalised to a unit cube (centre at origin,
+    longest edge = 1) so the comparison ignores absolute scale and
+    translation differences between the noisy input (rendered at unit
+    scale) and the rebuild (real mm). What remains in the IoU signal:
+    aspect ratio, shape outline, and feature placement. Returns
+    (avg_iou, per_view).
+    """
+    import pyvista as pv
+    ma = _normalize_mesh_to_unit_cube(pv.read(str(stl_a)))
+    mb = _normalize_mesh_to_unit_cube(pv.read(str(stl_b)))
+    center = (0.0, 0.0, 0.0)
+    # Both meshes now fit in a [-0.5, 0.5] cube; pick a span that gives
+    # a bit of padding so silhouettes don't clip at the frame edge.
+    span = 1.1
+    per_view: dict[str, float] = {}
+    for view in ("Z", "X", "Y"):
+        sa = _silhouette_mask_from_view(ma, view, center, span, resolution)
+        sb = _silhouette_mask_from_view(mb, view, center, span, resolution)
+        inter = int(np.logical_and(sa, sb).sum())
+        union = int(np.logical_or(sa, sb).sum())
+        per_view[view] = float(inter / union) if union > 0 else 0.0
+    avg = float(np.mean(list(per_view.values())))
+    return avg, per_view
+
+
+def _build_execute_render(part, paths: "RunPaths", part_id: str, *, label: str) -> bool:
+    """Build CadQuery code from a SketchPartDescription, exec it in a
+    subprocess, and re-render the rebuild as a 6-view grid. Returns
+    True on success. Used twice in the pipeline: once for the CV
+    inferencer's part, optionally again for the vision fallback's part.
+    """
+    _print_header(f"Build / Execute / Render — {label}")
+    code = build_from_sketches(part)
+    paths.code_py.write_text(code)
+    print(code)
+    print(f"  wrote {paths.code_py.relative_to(REPO_ROOT)}")
+
+    wrapper = (
+        code + "\n"
+        + f"result.val().exportStep({str(paths.step)!r})\n"
+        # Tight tolerances so circular features tessellate smoothly
+        # instead of the default ~10-segment polygon facets.
+        + f"cq.exporters.export(result, {str(paths.stl)!r}, "
+          "tolerance=0.02, angularTolerance=0.05)\n"
+    )
+    if paths.stl.exists():
+        paths.stl.unlink()
+    if paths.step.exists():
+        paths.step.unlink()
+    proc = subprocess.run(
+        [sys.executable, "-c", wrapper],
+        timeout=EXEC_TIMEOUT_SECONDS,
+        capture_output=True, text=True, cwd=str(REPO_ROOT),
+    )
+    if proc.returncode != 0 or not paths.stl.exists():
+        print(f"  CadQuery execution FAILED ({label}).", file=sys.stderr)
+        if proc.stdout:
+            print("--- stdout ---", file=sys.stderr); print(proc.stdout, file=sys.stderr)
+        if proc.stderr:
+            print("--- stderr ---", file=sys.stderr); print(proc.stderr, file=sys.stderr)
+        return False
+    print(f"  STL: {paths.stl.relative_to(REPO_ROOT)} ({paths.stl.stat().st_size} bytes)")
+    print(f"  STEP: {paths.step.relative_to(REPO_ROOT)} ({paths.step.stat().st_size} bytes)")
+    try:
+        render_stl_to_grid(paths.stl, paths.recon_grid, part_id=part_id)
+        print(f"  wrote {paths.recon_grid.relative_to(REPO_ROOT)}")
+    except Exception as exc:
+        print(f"  render failed (continuing): {exc}", file=sys.stderr)
+    return True
 
 
 def _resolve_clean_png(sample_id: str, *, skip_cleanup: bool = False) -> Path:
@@ -272,59 +413,136 @@ def main() -> int:
     if part.notes:
         print(f"Notes: {part.notes}")
 
-    # 3 — build CadQuery code
-    _print_header("Step 3 — Build CadQuery code")
-    code = build_from_sketches(part)
-    paths.code_py.write_text(code)
-    print(code)
-    print(f"  wrote {paths.code_py.relative_to(REPO_ROOT)}")
-
-    # 4 — execute
-    _print_header("Step 4 — Execute CadQuery in subprocess")
-    wrapper = (
-        code
-        + "\n"
-        + f"result.val().exportStep({str(paths.step)!r})\n"
-        # Tight tolerances so circular features tessellate smoothly
-        # instead of showing the default ~10-segment polygon facets.
-        # tolerance = chord-height (mm), angularTolerance = chord-arc (rad).
-        + f"cq.exporters.export(result, {str(paths.stl)!r}, "
-          "tolerance=0.02, angularTolerance=0.05)\n"
-    )
-    if paths.stl.exists():
-        paths.stl.unlink()
-    if paths.step.exists():
-        paths.step.unlink()
-    proc = subprocess.run(
-        [sys.executable, "-c", wrapper],
-        timeout=EXEC_TIMEOUT_SECONDS,
-        capture_output=True,
-        text=True,
-        cwd=str(REPO_ROOT),
-    )
-    if proc.returncode != 0 or not paths.stl.exists():
-        print("CadQuery execution FAILED.", file=sys.stderr)
-        if proc.stdout:
-            print("--- stdout ---", file=sys.stderr); print(proc.stdout, file=sys.stderr)
-        if proc.stderr:
-            print("--- stderr ---", file=sys.stderr); print(proc.stderr, file=sys.stderr)
+    # 3-5 — build CadQuery code, execute, render rebuild grid.
+    if not _build_execute_render(part, paths, part_id, label="CV"):
         return 1
-    print(f"  STL: {paths.stl.relative_to(REPO_ROOT)} ({paths.stl.stat().st_size} bytes)")
-    print(f"  STEP: {paths.step.relative_to(REPO_ROOT)} ({paths.step.stat().st_size} bytes)")
 
-    # 5 — re-render the rebuild as a 6-view grid for visual compare
-    _print_header("Step 5 — Re-render rebuild")
-    try:
-        render_stl_to_grid(paths.stl, paths.recon_grid, part_id=part_id)
-        print(f"  wrote {paths.recon_grid.relative_to(REPO_ROOT)}")
-    except Exception as exc:
-        print(f"  render failed (continuing): {exc}", file=sys.stderr)
+    # 6 — Silhouette IoU between input noisy mesh and the rebuild. This
+    # is the confidence signal that decides whether the deterministic CV
+    # path produced something faithful to the input geometry.
+    _print_header("Step 6 — Silhouette IoU vs input")
+    input_stl = _resolve_input_noisy_stl(part_id)
+    confidence_cv = 0.0
+    iou_breakdown_cv: dict[str, float] = {}
+    if input_stl is None:
+        print(f"  no input noisy STL for {part_id!r} — skipping confidence check")
+    else:
+        try:
+            confidence_cv, iou_breakdown_cv = _silhouette_iou(input_stl, paths.stl)
+            print(
+                f"  deterministic CV  avg IoU = {confidence_cv:.3f}  "
+                f"per-view: Z={iou_breakdown_cv['Z']:.3f} "
+                f"X={iou_breakdown_cv['X']:.3f} Y={iou_breakdown_cv['Y']:.3f}"
+            )
+        except Exception as exc:
+            print(f"  silhouette IoU failed: {exc}", file=sys.stderr)
+
+    # 7 — Vision fallback when the CV rebuild's silhouette diverges
+    # materially from the input. The fallback re-classifies the shape
+    # using Claude vision (sketch_llm_client.call_claude_sketch), then
+    # rebuilds via the same _build_execute_render path. Only adopt the
+    # vision result if it ACTUALLY scores higher; otherwise keep CV.
+    used_vision = False
+    if (
+        input_stl is not None
+        and 0.0 < confidence_cv < CONFIDENCE_THRESHOLD
+    ):
+        _print_header(
+            f"Step 7 — Confidence {confidence_cv:.3f} < "
+            f"{CONFIDENCE_THRESHOLD} → Claude vision fallback"
+        )
+        # Backup CV attempt so we can restore it if vision is worse.
+        cv_backup_stl = OUTPUT_DIR / f"ortho_{part_id}_cv_attempt.stl"
+        cv_backup_step = OUTPUT_DIR / f"ortho_{part_id}_cv_attempt.step"
+        cv_backup_grid = OUTPUT_DIR / f"ortho_{part_id}_cv_attempt_recon_grid.png"
+        cv_backup_code = OUTPUT_DIR / f"ortho_{part_id}_cv_attempt_generated.py"
+        cv_backup_sketch = OUTPUT_DIR / f"ortho_{part_id}_cv_attempt_sketches.json"
+        shutil.copy(paths.stl, cv_backup_stl)
+        shutil.copy(paths.step, cv_backup_step)
+        if paths.recon_grid.exists():
+            shutil.copy(paths.recon_grid, cv_backup_grid)
+        shutil.copy(paths.code_py, cv_backup_code)
+        shutil.copy(paths.sketch_json, cv_backup_sketch)
+
+        try:
+            from backend.ai_infra.sketch_llm_client import call_claude_sketch
+            import pyvista as pv
+            input_bounds = tuple(pv.read(str(input_stl)).bounds)
+            # The vision pipeline's contour_extractor.extract_all_views
+            # only accepts the 2400x1000 grid layout from
+            # backend.pipeline.stl_renderer, NOT the 1536x1024 cleaned
+            # PNG that the deterministic CV path reads. Render the
+            # input noisy STL through that renderer first so the vision
+            # client sees the format it expects.
+            input_grid = OUTPUT_DIR / f"ortho_{part_id}_input_grid.png"
+            if not input_grid.exists():
+                print(f"  rendering input grid {input_grid.relative_to(REPO_ROOT)}...")
+                render_stl_to_grid(input_stl, input_grid, part_id=part_id)
+            print(f"  calling Claude vision on {input_grid.relative_to(REPO_ROOT)}...")
+            sys.stdout.flush()
+            vision_part = call_claude_sketch(
+                input_grid, mesh_bounds_mm=input_bounds  # type: ignore[arg-type]
+            )
+            paths.sketch_json.write_text(vision_part.model_dump_json(indent=2))
+            ok = _build_execute_render(
+                vision_part, paths, part_id, label="Vision",
+            )
+            if ok:
+                confidence_vision, iou_breakdown_vision = _silhouette_iou(
+                    input_stl, paths.stl,
+                )
+                print(
+                    f"  vision           avg IoU = {confidence_vision:.3f}  "
+                    f"per-view: Z={iou_breakdown_vision['Z']:.3f} "
+                    f"X={iou_breakdown_vision['X']:.3f} "
+                    f"Y={iou_breakdown_vision['Y']:.3f}"
+                )
+                if confidence_vision > confidence_cv:
+                    used_vision = True
+                    print(
+                        f"  → using vision result (better by "
+                        f"{confidence_vision - confidence_cv:.3f})"
+                    )
+                else:
+                    print(
+                        f"  → vision NOT better — restoring CV attempt"
+                    )
+                    shutil.copy(cv_backup_stl, paths.stl)
+                    shutil.copy(cv_backup_step, paths.step)
+                    if cv_backup_grid.exists():
+                        shutil.copy(cv_backup_grid, paths.recon_grid)
+                    shutil.copy(cv_backup_code, paths.code_py)
+                    shutil.copy(cv_backup_sketch, paths.sketch_json)
+            else:
+                print(f"  vision rebuild FAILED — restoring CV attempt")
+                shutil.copy(cv_backup_stl, paths.stl)
+                shutil.copy(cv_backup_step, paths.step)
+                if cv_backup_grid.exists():
+                    shutil.copy(cv_backup_grid, paths.recon_grid)
+                shutil.copy(cv_backup_code, paths.code_py)
+                shutil.copy(cv_backup_sketch, paths.sketch_json)
+        except Exception as exc:
+            sys.stdout.flush()
+            print(f"  vision fallback raised: {type(exc).__name__}: {exc}", file=sys.stderr)
+            traceback.print_exc()
+            sys.stderr.flush()
+            print(f"  restoring CV attempt")
+            shutil.copy(cv_backup_stl, paths.stl)
+            shutil.copy(cv_backup_step, paths.step)
+            if cv_backup_grid.exists():
+                shutil.copy(cv_backup_grid, paths.recon_grid)
+            shutil.copy(cv_backup_code, paths.code_py)
+            shutil.copy(cv_backup_sketch, paths.sketch_json)
 
     print()
     print("artifacts:")
     for p in paths.all():
         if p.exists():
             print(f"  {p.relative_to(REPO_ROOT)}")
+    if used_vision:
+        print("  [final result from VISION fallback]")
+    elif confidence_cv > 0:
+        print(f"  [final result from CV (IoU {confidence_cv:.3f})]")
 
     if args.open and sys.platform == "darwin":
         for p in (paths.overlay_png, paths.recon_grid):
