@@ -838,30 +838,14 @@ function StlPointCloud({
   geometry,
   count = 14000,
   color = "#60a5fa",
-  activeDrag = null,
-  onDragChange,
 }: {
   geometry: THREE.BufferGeometry | null;
   count?: number;
   color?: string;
-  activeDrag?: ActiveDrag;
-  onDragChange: (drag: ActiveDrag) => void;
 }) {
-  const { gl, camera } = useThree();
-  const groupRef = useRef<THREE.Group>(null);
-  const dragStateRef = useRef<{
-    face: FaceKey;
-    startScreen: THREE.Vector2;
-    axisScreen: THREE.Vector2;
-    pixelsPerUnit: number;
-    pin: THREE.Vector3;
-  } | null>(null);
-  const [hovered, setHovered] = useState(false);
-
   const sampled = useMemo(() => {
     if (!geometry) return null;
     const attr = geometry.getAttribute("position") as THREE.BufferAttribute;
-    const bounds = computeBoundsFromGeometry(geometry);
     const pts = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
       const idx = Math.floor(Math.random() * attr.count);
@@ -869,164 +853,20 @@ function StlPointCloud({
       pts[i * 3 + 1] = attr.getY(idx) + Math.random() * 0.004;
       pts[i * 3 + 2] = attr.getZ(idx) + (Math.random() - 0.5) * 0.004;
     }
-    return { pts, bounds };
+    return { pts };
   }, [geometry, count]);
 
-  const worldDirToScreen = useCallback(
-    (origin: THREE.Vector3, dir: THREE.Vector3) => {
-      const a = origin.clone().project(camera);
-      const b = origin.clone().add(dir).project(camera);
-      const rect = gl.domElement.getBoundingClientRect();
-      return new THREE.Vector2(
-        ((b.x - a.x) * rect.width) / 2,
-        ((a.y - b.y) * rect.height) / 2,
-      );
-    },
-    [camera, gl],
-  );
-
-  const positions = useMemo(() => {
-    if (!sampled) return null;
-    const out = sampled.pts.slice();
-    if (!activeDrag) return out;
-    const p = new THREE.Vector3();
-    for (let i = 0; i < count; i++) {
-      p.set(sampled.pts[i * 3], sampled.pts[i * 3 + 1], sampled.pts[i * 3 + 2]);
-      const next = deformPoint(p, sampled.bounds, activeDrag, "cloud");
-      out[i * 3] = next.x;
-      out[i * 3 + 1] = next.y;
-      out[i * 3 + 2] = next.z;
-    }
-    return out;
-  }, [sampled, activeDrag, count]);
-
-  useEffect(() => {
-    const handleMove = (ev: PointerEvent) => {
-      const state = dragStateRef.current;
-      if (!state) return;
-      const dx = ev.clientX - state.startScreen.x;
-      const dy = ev.clientY - state.startScreen.y;
-      const projected = dx * state.axisScreen.x + dy * state.axisScreen.y;
-      const delta = projected / state.pixelsPerUnit;
-      onDragChange({ face: state.face, delta, pin: state.pin.clone() });
-    };
-    const handleUp = () => {
-      if (!dragStateRef.current) return;
-      dragStateRef.current = null;
-      onDragChange(null);
-      gl.domElement.style.cursor = hovered ? "grab" : "default";
-    };
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", handleUp);
-    window.addEventListener("pointercancel", handleUp);
-    return () => {
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-      window.removeEventListener("pointercancel", handleUp);
-    };
-  }, [gl, hovered, onDragChange]);
-
-  if (!positions || !sampled) return null;
-
-  const { bounds } = sampled;
-  const size = new THREE.Vector3();
-  const center = new THREE.Vector3();
-  bounds.getSize(size);
-  bounds.getCenter(center);
-
-  const pickFace = (pin: THREE.Vector3): FaceKey => {
-    const dx = (pin.x - center.x) / Math.max(size.x / 2, 1e-4);
-    const dy = (pin.y - center.y) / Math.max(size.y / 2, 1e-4);
-    const dz = (pin.z - center.z) / Math.max(size.z / 2, 1e-4);
-    const ax = Math.abs(dx);
-    const ay = Math.abs(dy);
-    const az = Math.abs(dz);
-    if (ax >= ay && ax >= az) return dx >= 0 ? "px" : "nx";
-    if (ay >= ax && ay >= az) return dy >= 0 ? "py" : "ny";
-    return dz >= 0 ? "pz" : "nz";
-  };
-
-  const faceNormal = (face: FaceKey) => {
-    switch (face) {
-      case "px":
-        return new THREE.Vector3(1, 0, 0);
-      case "nx":
-        return new THREE.Vector3(-1, 0, 0);
-      case "py":
-        return new THREE.Vector3(0, 1, 0);
-      case "ny":
-        return new THREE.Vector3(0, -1, 0);
-      case "pz":
-        return new THREE.Vector3(0, 0, 1);
-      case "nz":
-        return new THREE.Vector3(0, 0, -1);
-    }
-  };
+  if (!sampled) return null;
+  const positions = sampled.pts;
 
   return (
-    <group ref={groupRef} position={[0, PODIUM_DECK_Y + PODIUM_CLEARANCE_Y, 0]}>
+    <group position={[0, PODIUM_DECK_Y + PODIUM_CLEARANCE_Y, 0]}>
       <points raycast={() => null}>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" array={positions} count={count} itemSize={3} />
         </bufferGeometry>
         <pointsMaterial size={0.03} color={color} sizeAttenuation transparent opacity={0.95} />
       </points>
-      <mesh
-        position={[center.x, center.y, center.z]}
-        onPointerOver={(e) => {
-          e.stopPropagation();
-          setHovered(true);
-          if (!dragStateRef.current) gl.domElement.style.cursor = "grab";
-        }}
-        onPointerOut={() => {
-          setHovered(false);
-          if (!dragStateRef.current) gl.domElement.style.cursor = "default";
-        }}
-        onPointerDown={(e: ThreeEvent<PointerEvent>) => {
-          e.stopPropagation();
-          (e.target as Element)?.setPointerCapture?.(e.pointerId);
-          const pin = e.point.clone();
-          groupRef.current?.worldToLocal(pin);
-          const face = pickFace(pin);
-          const normal = faceNormal(face);
-          const axisVec = worldDirToScreen(e.point.clone(), normal);
-          const axis =
-            axisVec.length() > 0 ? axisVec.clone().normalize() : new THREE.Vector2(0, -1);
-          const pixelsPerUnit = Math.max(axisVec.length(), 30);
-          dragStateRef.current = {
-            face,
-            startScreen: new THREE.Vector2(e.clientX, e.clientY),
-            axisScreen: axis,
-            pixelsPerUnit,
-            pin,
-          };
-          onDragChange({ face, delta: 0, pin });
-          gl.domElement.style.cursor = "grabbing";
-        }}
-      >
-        <boxGeometry args={[size.x * 1.75, size.y * 1.75, size.z * 1.75]} />
-        <meshBasicMaterial
-          transparent
-          opacity={hovered || dragStateRef.current ? 0.02 : 0}
-          color="#60a5fa"
-          depthWrite={false}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-      {activeDrag && (
-        <Html
-          position={[activeDrag.pin.x, activeDrag.pin.y + 0.15, activeDrag.pin.z]}
-          center
-          distanceFactor={7}
-          zIndexRange={[100, 0]}
-          style={{ pointerEvents: "none" }}
-        >
-          <div className="floating-label whitespace-nowrap">
-            {activeDrag.delta >= 0 ? "+" : ""}
-            {Math.round(activeDrag.delta * 100)}mm
-          </div>
-        </Html>
-      )}
     </group>
   );
 }
@@ -1393,11 +1233,7 @@ export function Scene({
             topY={getSample000035TopY(SAMPLE_000035_INITIAL_PARAMS)}
           />
           <SpinningStage paused={Boolean(activeDrag)} rotationRef={sharedRotation}>
-            <StlPointCloud
-              geometry={pointCloudGeometry}
-              activeDrag={activeDrag}
-              onDragChange={setActiveDrag}
-            />
+            <StlPointCloud geometry={pointCloudGeometry} />
           </SpinningStage>
         </AnimatedStage>
 
