@@ -843,7 +843,7 @@ function StlPointCloud({
   count?: number;
   color?: string;
 }) {
-  const sampled = useMemo(() => {
+  const pointsGeometry = useMemo(() => {
     if (!geometry) return null;
     const attr = geometry.getAttribute("position") as THREE.BufferAttribute;
     const pts = new Float32Array(count * 3);
@@ -853,18 +853,18 @@ function StlPointCloud({
       pts[i * 3 + 1] = attr.getY(idx) + Math.random() * 0.004;
       pts[i * 3 + 2] = attr.getZ(idx) + (Math.random() - 0.5) * 0.004;
     }
-    return { pts };
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.BufferAttribute(pts, 3));
+    return geom;
   }, [geometry, count]);
 
-  if (!sampled) return null;
-  const positions = sampled.pts;
+  useEffect(() => () => pointsGeometry?.dispose(), [pointsGeometry]);
+
+  if (!pointsGeometry) return null;
 
   return (
     <group position={[0, PODIUM_DECK_Y + PODIUM_CLEARANCE_Y, 0]}>
-      <points raycast={() => null}>
-        <bufferGeometry>
-          <bufferAttribute attach="attributes-position" array={positions} count={count} itemSize={3} />
-        </bufferGeometry>
+      <points geometry={pointsGeometry} raycast={() => null}>
         <pointsMaterial size={0.03} color={color} sizeAttenuation transparent opacity={0.95} />
       </points>
     </group>
