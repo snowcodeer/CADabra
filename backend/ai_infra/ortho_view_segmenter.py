@@ -356,13 +356,9 @@ def _silhouette_mask(panel: np.ndarray) -> np.ndarray:
     body = luma < SILHOUETTE_BODY_MAX_LUMA
     # Close pinholes left by gpt-image-2 cleanup so contour detection
     # doesn't return one master contour with hundreds of internal holes
-    # for what is really a near-clean silhouette. 5x5 single-iteration
-    # close is a small bump over the original 3x3 to handle modest
-    # render gaps from triangle-soup noisy meshes without warping the
-    # silhouette boundary itself (anything more aggressive merges real
-    # features or shifts edges by several mm).
+    # for what is really a near-clean silhouette.
     body_u8 = body.astype(np.uint8) * 255
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     body_u8 = cv2.morphologyEx(body_u8, cv2.MORPH_CLOSE, kernel, iterations=1)
     return body_u8 > 0
 
@@ -418,160 +414,6 @@ def _interior_holes(body_mask: np.ndarray) -> list[InteriorHole]:
     return holes
 
 
-def _segments_intersect(
-    a: np.ndarray, b: np.ndarray, c: np.ndarray, d: np.ndarray,
-) -> bool:
-    """Proper-intersection test for two segments AB and CD in 2D.
-
-    Returns True only when the segments cross each other's interior
-    (collinear-overlap and endpoint-touching cases return False so the
-    polygon simplicity check doesn't false-positive on shared vertices
-    between adjacent edges).
-    """
-    def ccw(p, q, r) -> float:
-        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
-
-    d1 = ccw(c, d, a)
-    d2 = ccw(c, d, b)
-    d3 = ccw(a, b, c)
-    d4 = ccw(a, b, d)
-    return (
-        ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0))
-        and ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0))
-    )
-
-
-def _find_first_self_intersection(
-    poly: np.ndarray,
-) -> tuple[int, int] | None:
-    """Return ``(i, j)`` for the first non-adjacent edge pair that
-    crosses, or ``None`` if the polygon is simple.
-
-    Edge ``i`` is the segment ``poly[i] -> poly[i+1]``; edge ``j`` is
-    ``poly[j] -> poly[j+1]``. ``i < j`` always.
-    """
-    pts = np.asarray(poly, dtype=float)
-    n = len(pts)
-    if n < 4:
-        return None
-    for i in range(n):
-        a, b = pts[i], pts[(i + 1) % n]
-        for j in range(i + 2, n):
-            if i == 0 and j == n - 1:
-                continue
-            c, d = pts[j], pts[(j + 1) % n]
-            if _segments_intersect(a, b, c, d):
-                return (i, j)
-    return None
-
-
-def _polygon_is_simple(poly: np.ndarray) -> bool:
-    """Return True if no two non-adjacent edges of ``poly`` cross."""
-    return _find_first_self_intersection(poly) is None
-
-
-def _line_line_intersection(
-    p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, p4: np.ndarray,
-) -> tuple[float, float] | None:
-    """Intersection point of the infinite lines through ``p1-p2`` and
-    ``p3-p4``. Returns ``None`` if the lines are parallel."""
-    x1, y1 = float(p1[0]), float(p1[1])
-    x2, y2 = float(p2[0]), float(p2[1])
-    x3, y3 = float(p3[0]), float(p3[1])
-    x4, y4 = float(p4[0]), float(p4[1])
-    denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-    if abs(denom) < 1e-9:
-        return None
-    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
-    return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
-
-
-def _remove_spike_tips(
-    poly: list[tuple[float, float]], min_turn_cos: float = -0.9,
-) -> list[tuple[float, float]]:
-    """Remove vertices that form a hairpin (~180° turn).
-
-    A "spike tip" is a vertex whose incoming and outgoing edges are
-    nearly antiparallel — the polygon goes out to that vertex and
-    immediately turns back along (almost) the same line. These don't
-    register as self-intersections (the two edges meet at the vertex
-    so they don't formally cross), but they manifest as thin
-    triangular notches in the extruded face.
-
-    Repeats until no more spike tips found.
-    """
-    changed = True
-    while changed and len(poly) >= 4:
-        changed = False
-        n = len(poly)
-        for i in range(n):
-            prev_pt = np.asarray(poly[(i - 1) % n])
-            curr_pt = np.asarray(poly[i])
-            next_pt = np.asarray(poly[(i + 1) % n])
-            v_in = curr_pt - prev_pt
-            v_out = next_pt - curr_pt
-            n_in = float(np.linalg.norm(v_in))
-            n_out = float(np.linalg.norm(v_out))
-            if n_in < 1e-6 or n_out < 1e-6:
-                # Degenerate edge — drop the vertex.
-                del poly[i]
-                changed = True
-                break
-            cos_turn = float(np.dot(v_in, v_out) / (n_in * n_out))
-            if cos_turn < min_turn_cos:
-                del poly[i]
-                changed = True
-                break
-    return poly
-
-
-def _repair_self_intersections(
-    poly: np.ndarray, max_iters: int = 12,
-) -> np.ndarray:
-    """Iteratively excise polyline spikes caused by self-intersection.
-
-    Two passes:
-      1. Self-intersecting edge pairs (i, j): replace the sub-loop
-         vertices ``i+1 .. j`` with the single crossing point.
-      2. Spike-tip vertices (incoming and outgoing edges nearly
-         antiparallel): drop the vertex.
-
-    Both passes preserve the rest of the polygon (including arcs at
-    other indices) since they only touch the offending vertices.
-    Repeats until stable or ``max_iters`` reached. Falls back to the
-    convex hull on pathological inputs where the surgical repair
-    cannot make progress.
-    """
-    pts = [tuple(float(c) for c in p) for p in np.asarray(poly)]
-    for _ in range(max_iters):
-        n = len(pts)
-        if n < 4:
-            return np.asarray(pts, dtype=float)
-        cross = _find_first_self_intersection(np.asarray(pts, dtype=float))
-        if cross is None:
-            # No more crossings — also strip out spike-tip vertices.
-            pts = _remove_spike_tips(pts)
-            if _find_first_self_intersection(np.asarray(pts, dtype=float)) is None:
-                return np.asarray(pts, dtype=float)
-            continue
-        i, j = cross
-        a, b = np.asarray(pts[i]), np.asarray(pts[(i + 1) % n])
-        c, d = np.asarray(pts[j]), np.asarray(pts[(j + 1) % n])
-        ip = _line_line_intersection(a, b, c, d)
-        # Replace vertices i+1..j with the intersection point. Walk
-        # forward from index 0 through i, append the intersection,
-        # then resume at j+1 through n-1.
-        kept_prefix = pts[: i + 1]
-        kept_suffix = pts[(j + 1) % n: n] if (j + 1) < n else []
-        if ip is None:
-            pts = kept_prefix + kept_suffix
-        else:
-            pts = kept_prefix + [ip] + kept_suffix
-        if len(pts) < 3:
-            break
-    return np.asarray(pts, dtype=float)
-
-
 def _polygon_and_edges(contour: np.ndarray) -> tuple[
     list[tuple[int, int]], tuple[int, int, int, int], list[StraightEdge],
 ]:
@@ -579,12 +421,6 @@ def _polygon_and_edges(contour: np.ndarray) -> tuple[
     perim = cv2.arcLength(contour, closed=True)
     eps = perim * POLY_APPROX_EPSILON_FRAC
     poly = cv2.approxPolyDP(contour, eps, closed=True).reshape(-1, 2)
-    if not _polygon_is_simple(poly):
-        repaired = _repair_self_intersections(poly)
-        if len(repaired) >= 3 and _polygon_is_simple(repaired):
-            poly = repaired.astype(poly.dtype)
-        else:
-            poly = cv2.convexHull(contour).reshape(-1, 2)
     bx, by, bw, bh = cv2.boundingRect(contour)
     bbox_diag = float(np.hypot(bw, bh))
 
@@ -1138,16 +974,6 @@ def _tier_polygon(contour: np.ndarray) -> tuple[
     perim = float(cv2.arcLength(contour, closed=True))
     eps = max(1.0, perim * TIER_REGION_POLY_EPSILON)
     poly = cv2.approxPolyDP(contour, eps, closed=True).reshape(-1, 2)
-    # Same surgical spike-removal as _polygon_and_edges: tier-region
-    # polygons feed _segment_line_arc and become the extrude profile,
-    # so they must be simple. Surgical repair preserves arcs elsewhere
-    # in the outline; convex hull is the last-ditch fallback.
-    if not _polygon_is_simple(poly):
-        repaired = _repair_self_intersections(poly)
-        if len(repaired) >= 3 and _polygon_is_simple(repaired):
-            poly = repaired.astype(poly.dtype)
-        else:
-            poly = cv2.convexHull(contour).reshape(-1, 2)
     bx, by, bw, bh = cv2.boundingRect(contour)
     return ([(int(p[0]), int(p[1])) for p in poly],
             (int(bx), int(by), int(bw), int(bh)))
