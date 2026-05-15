@@ -91,7 +91,17 @@ def outputs(filename: str):
     file_path = OUTPUT_DIR / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(file_path)
+    # Force the browser to revalidate on every fetch. These outputs get
+    # regenerated whenever the pipeline reruns, so even cache headers tied
+    # to mtime aren't aggressive enough for the dev loop — the browser
+    # keeps replaying the previous response after a hard reload.
+    return FileResponse(
+        file_path,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.post("/upload")
