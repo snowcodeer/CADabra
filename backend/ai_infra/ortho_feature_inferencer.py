@@ -982,51 +982,57 @@ def _build_stacked_extrudes(
             by_depth[key] = tier
     deduped = sorted(by_depth.values(), key=lambda t: -t.relative_depth)
 
-    # PRE-FILTER 2 — monotonicity gate. For a stacked-extrude topology each
-    # tier (going FAR→NEAR / bottom→top) must be SMALLER than the one
-    # below it. A tier whose area is bigger than its predecessor is one of:
-    #   (a) the real next tier and the predecessor was a sliver of noise →
-    #       drop the predecessor and keep this one as the new floor;
-    #   (b) cleanup noise itself, sandwiched between two real tiers, that
-    #       happens to be smaller than the one BELOW but bigger than the
-    #       one we'd otherwise advance to;
-    #   (c) a counterbore step VISIBLE THROUGH a through-hole — predecessor
-    #       is the counterbore floor (deeper Z, smaller area), this tier
-    #       is the BOSS TOP annulus (higher Z, bigger area). The outside
-    #       only has two step-offs (flange + boss); the apparent third
-    #       "tier" is the counterbore floor seen through the hole. We
-    #       handle this by dropping the predecessor (the counterbore is
-    #       emitted as a CUT later by _detect_internal_counterbore) and
-    #       keeping THIS tier as the legitimate boss top.
-    # Heuristic: ≥ 2× the predecessor → (a); bbox of predecessor lies
-    # INSIDE this tier's bbox (concentric annulus pattern) → (c) drop the
-    # predecessor and keep this as the real boss top; else (b) drop.
+    # STEP-OFF DISPATCH — walk consecutive tiers in FAR→NEAR order and route
+    # each transition through the (kind, direction) intermediate
+    # representation introduced in Phase 1. For a stacked-extrude topology
+    # each tier must be SMALLER than its predecessor (the boss sits on top
+    # of the bigger flange). When ``tier.area_px > prev.area_px`` the
+    # transition is anomalous and falls into one of three cases:
+    #   (a) ``tier.area_px >= 2.0 * prev.area_px`` — the predecessor was a
+    #       noise sliver; drop it and keep ``tier`` as the new floor. In
+    #       step-off terms there's no emission because the sliver was never
+    #       a real depth tier.
+    #   (b) the predecessor's bbox is NOT contained inside ``tier``'s bbox —
+    #       laterally-offset cleanup noise (neither a real tier nor a
+    #       recess seen through a hole). Drop ``tier``.
+    #   (c) the predecessor's bbox IS contained inside ``tier``'s bbox
+    #       (concentric annulus pattern) — the predecessor is a counterbore
+    #       FLOOR seen through a through-hole that pierces ``tier`` (the
+    #       BOSS TOP). Maps to a step-off with ``kind="internal"`` (or
+    #       ``external`` when the floor outline grazes the part silhouette,
+    #       which still routes through this branch) and
+    #       ``step_direction="down"`` (floor is farther from camera = higher
+    #       relative_depth). Dispatch: drop the floor from the stack and
+    #       remember it so we can emit a partial-depth ``hole(d, depth)``
+    #       cut on the live ``>Z`` face after the stacked extrudes are
+    #       built.
+    # Each pending cut carries the boss tier (so we can resolve its face
+    # selector) and the floor tier (which provides the cut bbox + relative
+    # depth gap).
     monotonic: list[TierRegion] = []
-    # Tiers that were demoted from the stack because they were really a
-    # counterbore floor seen through the hole. Each entry is the dropped
-    # TierRegion paired with the BOSS tier it sits inside, so we can emit
-    # it as a recess cut on the boss top after the main stack is built.
-    counterbore_cuts: list[tuple[TierRegion, TierRegion]] = []
+    pending_internal_cuts: list[tuple[TierRegion, TierRegion]] = []
     for tier in deduped:
         if not monotonic:
             monotonic.append(tier)
             continue
-        if tier.area_px <= monotonic[-1].area_px:
+        prev = monotonic[-1]
+        if tier.area_px <= prev.area_px:
             monotonic.append(tier)
-        elif tier.area_px >= 2.0 * monotonic[-1].area_px:
-            # Predecessor was a noise sliver; replace it.
+            continue
+        # tier.area_px > prev.area_px — anomalous transition.
+        if tier.area_px >= 2.0 * prev.area_px:
+            # Case (a): noise-sliver predecessor — replace it silently.
             monotonic[-1] = tier
-        else:
-            prev = monotonic[-1]
-            prev_inside_tier = _bbox_contains_fraction(
-                tier.bbox_px, prev.bbox_px,
-            ) >= _STACK_BBOX_CONTAINMENT_FRAC
-            if prev_inside_tier:
-                # Counterbore-through-hole illusion: replace predecessor
-                # with this tier (the real boss top). The discarded one
-                # is re-emitted as a CUT later.
-                monotonic[-1] = tier
-                counterbore_cuts.append((prev, tier))
+            continue
+        prev_bbox_inside_tier = _bbox_contains_fraction(
+            tier.bbox_px, prev.bbox_px,
+        ) >= _STACK_BBOX_CONTAINMENT_FRAC
+        if prev_bbox_inside_tier:
+            # Case (c): (internal/external, down) step-off — counterbore
+            # floor seen through a through-hole in the boss above.
+            monotonic[-1] = tier
+            pending_internal_cuts.append((prev, tier))
+        # Case (b): laterally offset noise — drop ``tier``.
     deduped = monotonic
 
     # Filter tiers by minimum extrude distance.
@@ -1302,25 +1308,22 @@ def _build_stacked_extrudes(
         ))
         notes_parts.append(f"tier{i}({cls.label}, h={extrude_mm:.1f}mm)")
 
-    # COUNTERBORE CUTS — for each (counterbore_floor, boss_tier) pair
-    # captured during the monotonicity gate, emit a partial-depth cut from
-    # the boss top down to the counterbore floor. The diameter comes from
-    # the counterbore region's CV bbox; the depth comes from the rel_depth
-    # gap between the boss top and the counterbore floor, scaled by the
-    # part's Z extent.
-    if counterbore_cuts:
+    # PENDING (kind, down) CUTS — counterbore floors discovered during the
+    # step-off dispatch above. Each pending pair (cb_floor, boss_tier) routes
+    # to a partial-depth ``hole(d, depth)`` cut on the live ``>Z`` face of
+    # the boss extrude. Diameter comes from the floor's CV bbox; depth comes
+    # from |floor.relative_depth - boss.relative_depth| scaled by frame.z_mm
+    # (the boss top sits at boss.relative_depth, the floor sits at
+    # cb_floor.relative_depth, both expressed FAR=1 → NEAR=0).
+    if pending_internal_cuts:
         bos_extrude = next(
             (op for op in reversed(operations) if op.operation == "extrude"),
             None,
         )
         boss_face = bos_extrude.plane if bos_extrude else ">Z"
-        for cb_floor, boss_tier in counterbore_cuts:
+        for cb_floor, boss_tier in pending_internal_cuts:
             bx, by, bw, bh = cb_floor.bbox_px
             d_mm = ((bw + bh) / 2.0) * frame.mm_per_px
-            depth_norm = max(boss_tier.relative_depth - cb_floor.relative_depth, 0.0)
-            # relative_depth runs FAR (=1) → NEAR (=0); a counterbore
-            # floor is FARTHER (deeper) than the boss top, so its
-            # relative_depth is GREATER. depth_mm uses the absolute gap.
             cb_depth_mm = max(
                 abs(cb_floor.relative_depth - boss_tier.relative_depth) * frame.z_mm,
                 _stack_min_gap_mm(frame.z_mm),
@@ -1583,62 +1586,6 @@ def _rank_axis(slices: AxisSlices) -> float:
         1 for d in diffs if abs(d) / max_area > _SLICE_MIN_AREA_DIFF_FRAC
     )
     return float(significant_count)
-
-
-_PERP_VIEW_FOR_AXIS = {"Z": "Top", "Y": "Front", "X": "Right"}
-
-
-def _pick_slicing_axis(
-    slices_dict: dict[str, AxisSlices],
-    views: dict[str, ViewFeatures] | None = None,
-) -> AxisSlices | None:
-    """Pick the axis with the strongest stacked-cross-section signal.
-
-    When multiple axes pass _rank_axis the raw score alone isn't enough:
-    a stepped staircase like 002354 has monotonic area progressions BOTH
-    along its true stack axis (Z) AND along the side-projection axis (X),
-    and the side projection coincidentally scores higher because more of
-    its transitions cross the 15%-area threshold. To break ties we
-    consult the perpendicular base view's depth-tier count: Top reveals
-    Z-tiers, Front reveals Y-tiers, Right reveals X-tiers. CAD parts are
-    overwhelmingly Z-stacked, so when Z has perpendicular evidence
-    (Top.depth_tier_count >= 2) we prefer Z even if X scores higher in
-    raw transition count.
-
-    Returns None when no axis has a meaningful stacked structure."""
-    qualified: list[tuple[str, AxisSlices, float]] = []
-    for axis_name in ("Z", "Y", "X"):
-        s = slices_dict.get(axis_name)
-        if s is None:
-            continue
-        score = _rank_axis(s)
-        if score < _SLICE_MIN_RANK_SCORE:
-            continue
-        qualified.append((axis_name, s, score))
-
-    if not qualified:
-        return None
-    if len(qualified) == 1:
-        return qualified[0][1]
-
-    # Multi-axis case: use perpendicular-view evidence + CAD-axis priority.
-    def has_perp_evidence(axis_name: str) -> bool:
-        if views is None:
-            return False
-        perp_name = _PERP_VIEW_FOR_AXIS.get(axis_name)
-        perp = views.get(perp_name) if perp_name else None
-        return bool(perp) and perp.depth_tier_count >= 2
-
-    evidenced = [t for t in qualified if has_perp_evidence(t[0])]
-    if len(evidenced) == 1:
-        return evidenced[0][1]
-    if evidenced:
-        # Multiple axes have evidence: prefer Z > Y > X (CAD convention).
-        priority = {"Z": 0, "Y": 1, "X": 2}
-        evidenced.sort(key=lambda t: priority[t[0]])
-        return evidenced[0][1]
-    # No perpendicular evidence at all — fall back to raw score.
-    return max(qualified, key=lambda t: t[2])[1]
 
 
 def _polyline_to_regular_polygon(
@@ -2909,8 +2856,52 @@ def infer_sketches(features: OrthoFeatures) -> SketchPartDescription:
     sliced_note = ""
     sliced_axis = ""
     try:
+        # Step-off-based axis picker (Phase 1 refactor). Agent 1.2
+        # replaced the legacy ``_pick_slicing_axis`` call here; Agent 1.5
+        # has since removed that function entirely. The rank-threshold
+        # gate below preserves the legacy behavior of declining axes
+        # whose slice data is too weak.
+        from backend.ai_infra.step_offs import extract_step_offs
+        from backend.ai_infra.step_off_classifier import (
+            pick_axis_from_step_offs,
+        )
+
         axis_slices = compute_axis_slices(features.source_png)
-        chosen = _pick_slicing_axis(axis_slices, views=views)
+
+        try:
+            step_offs = extract_step_offs(features, frame)
+            step_off_axis = pick_axis_from_step_offs(step_offs, features)
+            external_on_axis = sum(
+                1
+                for s in step_offs
+                if s.kind == "external" and s.axis == step_off_axis
+            )
+            # Rank-threshold gate. The step-off picker may resolve an
+            # axis whose AxisSlices `_rank_axis` score is below
+            # `_SLICE_MIN_RANK_SCORE` (e.g. 002354 / 117514 where the
+            # side-projection slice data is non-monotonic and scores
+            # 0.0). Without this gate we would pass low-quality slice
+            # data to `_build_sliced_extrudes` and collapse / drift the
+            # tiers — preserving the legacy picker's "return None"
+            # behavior forces the per-view `_build_stacked_extrudes`
+            # fallback in those cases.
+            candidate = axis_slices.get(step_off_axis)
+            if (
+                external_on_axis >= 1
+                and candidate is not None
+                and _rank_axis(candidate) >= _SLICE_MIN_RANK_SCORE
+            ):
+                chosen = candidate
+            else:
+                # No external transitions along the picked axis, OR the
+                # slice data for that axis is too weak (non-monotonic /
+                # below rank threshold) — fall back to the per-view
+                # tier-region builder.
+                chosen = None
+        except Exception as exc:
+            sliced_note = f"step-off picker failed: {exc}"
+            chosen = None
+
         if chosen is not None:
             # Pass the BASE view (matched to the chosen axis) so the
             # base tier can use its per-view outline directly.

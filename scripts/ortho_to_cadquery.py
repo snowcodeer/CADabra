@@ -34,12 +34,23 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from backend.ai_infra.ortho_feature_inferencer import infer_sketches  # noqa: E402
+from backend.ai_infra.ortho_feature_inferencer import (  # noqa: E402
+    _drop_unpaired_silhouette_holes,
+    _world_frame,
+    infer_sketches,
+)
 from backend.ai_infra.ortho_view_segmenter import (  # noqa: E402
     render_debug_overlay,
     segment_ortho_png,
 )
 from backend.ai_infra.sketch_builder import build_from_sketches  # noqa: E402
+from backend.ai_infra.step_off_classifier import (  # noqa: E402
+    pick_axis_from_step_offs,
+)
+from backend.ai_infra.step_offs import (  # noqa: E402
+    extract_step_offs,
+    step_off_to_dict,
+)
 from backend.pipeline.stl_renderer import render_stl_to_grid  # noqa: E402
 
 
@@ -140,6 +151,13 @@ def parse_args() -> argparse.Namespace:
              "1536x1024 canvas directly. Useful when cleanup over-smooths "
              "(e.g. octagons -> circles) at low scan-noise levels.",
     )
+    p.add_argument(
+        "--dump-step-offs", action="store_true",
+        help="after segmentation, extract step-off features (tier pairs + "
+             "through-holes) and dump them to "
+             "backend/outputs/ortho_<part>_step_offs.json. Audit-only; the "
+             "existing infer_sketches path runs unchanged.",
+    )
     return p.parse_args()
 
 
@@ -178,6 +196,51 @@ def main() -> int:
             f"tiers={v.depth_tier_count}"
             + circ
         )
+
+    # 1b — optional step-off audit dump (additive; doesn't gate the pipeline).
+    if args.dump_step_offs:
+        try:
+            views_clean = _drop_unpaired_silhouette_holes(feats.views)
+            frame = _world_frame(views_clean)
+            audit_features = type(feats)(source_png=feats.source_png, views=views_clean)
+            step_offs = extract_step_offs(audit_features, frame)
+            axis_picked = pick_axis_from_step_offs(step_offs, audit_features)
+            external_tallies = {"Z": 0, "Y": 0, "X": 0}
+            for s in step_offs:
+                if s.kind == "external" and s.axis in external_tallies:
+                    external_tallies[s.axis] += 1
+            perp_tiers = {
+                "Z": getattr(views_clean.get("Top"), "depth_tier_count", 0)
+                if views_clean.get("Top") is not None else 0,
+                "Y": getattr(views_clean.get("Front"), "depth_tier_count", 0)
+                if views_clean.get("Front") is not None else 0,
+                "X": getattr(views_clean.get("Right"), "depth_tier_count", 0)
+                if views_clean.get("Right") is not None else 0,
+            }
+            dump_path = OUTPUT_DIR / f"ortho_{part_id}_step_offs.json"
+            dump_path.write_text(
+                json.dumps(
+                    {
+                        "sample_id": part_id,
+                        "axis_picked": axis_picked,
+                        "external_tallies": external_tallies,
+                        "step_offs": [step_off_to_dict(s) for s in step_offs],
+                    },
+                    indent=2,
+                )
+            )
+            print(
+                f"[step-offs] {part_id} axis={axis_picked} "
+                f"tallies={external_tallies} "
+                f"perp_tiers(Top/Front/Right)="
+                f"{perp_tiers['Z']}/{perp_tiers['Y']}/{perp_tiers['X']} "
+                f"count={len(step_offs)}"
+            )
+            print(f"  wrote {dump_path.relative_to(REPO_ROOT)}")
+        except Exception as exc:
+            print(f"step-off dump FAILED: {exc}", file=sys.stderr)
+            traceback.print_exc()
+            return 1
 
     # 2 — infer sketches
     _print_header("Step 2 — Cross-view feature inference")
